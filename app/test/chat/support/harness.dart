@@ -382,6 +382,7 @@ class ChatHarness {
     this.runtime,
     this.extra = const [],
     this.newChatCatalogs = false,
+    this.host,
     FakePicker? picker,
   }) : sessions = FakeSessions(created: created),
        picker = picker ?? FakePicker();
@@ -398,6 +399,12 @@ class ChatHarness {
 
   /// Overrides of providers the harness leaves alone (the active host, updates).
   final List<Override> extra;
+
+  /// Stands in for [activeConnectionProvider] when a suite needs the host to
+  /// change mid-test (a reconnect, a switch to another machine). The harness
+  /// owns that override, so callers hand the whole provider in rather than a
+  /// second override of the same provider, which Riverpod refuses.
+  final Override? host;
   final FakePicker picker;
 
   /// Let the new-chat preset/permission chips read the Host's catalogs.
@@ -414,7 +421,7 @@ class ChatHarness {
   Completer<void>? catalogHold;
 
   List<Override> get overrides => [
-    activeConnectionProvider.overrideWithValue(AsyncData<HostConnection?>(connected ? fakeConnection : null)),
+    host ?? activeConnectionProvider.overrideWithValue(AsyncData<HostConnection?>(connected ? fakeConnection : null)),
     // Local-engine features (account sign-in) read the on-device engine
     // directly; there is no native runtime in tests.
     localConnectionProvider.overrideWith(NoLocalEngine.new),

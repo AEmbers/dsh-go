@@ -1635,6 +1635,254 @@ class L10nEn extends L10n {
   String get activityToolListSeparator => ', ';
 
   @override
+  String get ateamTitle => 'Team panel';
+
+  @override
+  String get ateamNotServed => 'This host does not have the Agent Teams plugin';
+
+  @override
+  String get ateamNotEnabled => 'The Agent Teams plugin is off';
+
+  @override
+  String get ateamEnabling => 'Enabling…';
+
+  @override
+  String get ateamEnable => 'Enable Agent Teams';
+
+  @override
+  String get ateamNoTeams => 'No teams yet';
+
+  @override
+  String get ateamNoTeamsMessage => 'Start a team session on this host and its members and tasks show up here.';
+
+  @override
+  String get ateamReadFailed => 'Could not read the team state';
+
+  @override
+  String get ateamPhaseStaged => 'Awaiting approval';
+
+  @override
+  String get ateamPhaseRunning => 'Running';
+
+  @override
+  String get ateamPhaseArchived => 'Archived';
+
+  @override
+  String get ateamPlanAwaitingReview => 'The plan waits for your review';
+
+  @override
+  String get ateamPlanAwaitingFeedback => 'The plan waits for your feedback';
+
+  @override
+  String get ateamApprove => 'Approve & run';
+
+  @override
+  String get ateamContinue => 'Discuss further';
+
+  @override
+  String get ateamDiscard => 'Discard plan';
+
+  @override
+  String get ateamHalt => 'Halt team';
+
+  @override
+  String get ateamHalted => 'The team is halted';
+
+  @override
+  String get ateamLoopHalted => 'Quality loop halted';
+
+  @override
+  String get ateamLoopDeliverable => 'Quality loop: deliverable';
+
+  @override
+  String get ateamLoopEscalated => 'Quality loop escalated';
+
+  @override
+  String get ateamLoopRunning => 'Quality loop running';
+
+  @override
+  String get ateamLoopBlocked => 'Quality loop blocked';
+
+  @override
+  String get ateamDeliveryReady => 'Ready to deliver';
+
+  @override
+  String get ateamDeliveryBlocked => 'Not deliverable yet';
+
+  @override
+  String get ateamBlockers => 'Blockers';
+
+  @override
+  String get ateamWarnings => 'Warnings';
+
+  @override
+  String get ateamCaptain => 'Captain';
+
+  @override
+  String get ateamCaptainInbox => 'Captain inbox';
+
+  @override
+  String get ateamCaptainInboxEmpty => 'The captain inbox is empty';
+
+  @override
+  String get ateamMembers => 'Members';
+
+  @override
+  String get ateamTasks => 'Tasks';
+
+  @override
+  String get ateamOverview => 'Overview';
+
+  @override
+  String get ateamWorking => 'Working';
+
+  @override
+  String get ateamIdle => 'Idle';
+
+  @override
+  String get ateamUnknown => 'Unknown';
+
+  @override
+  String get ateamRemoved => 'Left';
+
+  @override
+  String ateamMembersWorking(int count) {
+    return '$count members working';
+  }
+
+  @override
+  String ateamMessagesCount(int count) {
+    return '$count inbox messages';
+  }
+
+  @override
+  String ateamProgress(int done, int total) {
+    return '$done/$total';
+  }
+
+  @override
+  String ateamUnread(int count) {
+    return '$count unread';
+  }
+
+  @override
+  String ateamRound(int round) {
+    return 'Round $round';
+  }
+
+  @override
+  String ateamVerdict(String verdict) {
+    return 'Verdict: $verdict';
+  }
+
+  @override
+  String get ateamVerdictStale => 'Verdict is stale';
+
+  @override
+  String ateamTaskDependencies(int count) {
+    return '$count dependencies';
+  }
+
+  @override
+  String ateamLane(int depth) {
+    return 'Lane $depth';
+  }
+
+  @override
+  String get ateamTaskStateCompleted => 'Completed';
+
+  @override
+  String get ateamTaskStateFailed => 'Failed';
+
+  @override
+  String get ateamTaskStateCancelled => 'Cancelled';
+
+  @override
+  String get ateamTaskStateRunning => 'Running';
+
+  @override
+  String get ateamTaskStateClaimed => 'Claimed';
+
+  @override
+  String get ateamTaskStateBlocked => 'Waiting on dependencies';
+
+  @override
+  String get ateamTaskStateOpen => 'Ready';
+
+  @override
+  String get ateamQualityKind => 'Quality gate';
+
+  @override
+  String get ateamDescription => 'Description';
+
+  @override
+  String get ateamAssignee => 'Assignee';
+
+  @override
+  String get ateamCurrentTask => 'Current task';
+
+  @override
+  String get ateamModelRoute => 'Model';
+
+  @override
+  String get ateamEffort => 'Thinking';
+
+  @override
+  String get ateamExecutionPrompt => 'Brief';
+
+  @override
+  String get ateamOpenChat => 'Open chat';
+
+  @override
+  String get ateamErrorUnavailable => 'This host does not serve the team endpoints';
+
+  @override
+  String get ateamErrorCaptainDetached => 'The captain chat is not attached; open it first';
+
+  @override
+  String get ateamErrorTeamMissing => 'This team no longer belongs to that captain';
+
+  @override
+  String get ateamErrorRejected => 'The plugin rejected that edit';
+
+  @override
+  String get ateamErrorFailed => 'That did not work';
+
+  @override
+  String get ateamUpdatedJustNow => 'Updated just now';
+
+  @override
+  String get ateamHaltConfirmTitle => 'Halt the whole team?';
+
+  @override
+  String get ateamHaltConfirmBody => 'Every member stops its current turn; the team itself stays where it is.';
+
+  @override
+  String get ateamDiscardConfirmTitle => 'Discard this plan?';
+
+  @override
+  String get ateamDiscardConfirmBody => 'The plan is archived and can no longer be approved.';
+
+  @override
+  String get ateamHaltedNote => 'Team halted';
+
+  @override
+  String get ateamStateNote => 'Team state';
+
+  @override
+  String get ateamLoop => 'Quality loop';
+
+  @override
+  String get ateamCatalogTitle => 'Agent Teams';
+
+  @override
+  String get ateamCatalogSummary =>
+      'Approve a staged plan, watch the members, the task lanes and the captain inbox, and halt the team at any time.';
+
+  @override
+  String get ateamCardOpenPanel => 'Open team panel';
+
+  @override
   String get botsFolderGone => 'This folder is gone';
 
   @override
@@ -3019,6 +3267,95 @@ class L10nEn extends L10n {
 
   @override
   String get botsCreationConnectionChanged => 'The connection changed. Reopen this form to create on the current host.';
+
+  @override
+  String get botsGoalBoard => 'Group goal';
+
+  @override
+  String botsGoalStageOf(int current, int count) {
+    return 'Stage $current of $count';
+  }
+
+  @override
+  String botsGoalPassedCount(int passed) {
+    return '$passed stages passed';
+  }
+
+  @override
+  String get botsGoalObjective => 'Goal';
+
+  @override
+  String get botsGoalAcceptance => 'Done when';
+
+  @override
+  String get botsGoalConstraints => 'Rules';
+
+  @override
+  String get botsGoalSummary => 'Delivered';
+
+  @override
+  String get botsGoalEvidence => 'Evidence';
+
+  @override
+  String get botsGoalReason => 'Stopped because';
+
+  @override
+  String get botsGoalCurrent => 'Current stage';
+
+  @override
+  String botsGoalReworks(int count) {
+    return 'Sent back $count times';
+  }
+
+  @override
+  String botsGoalFeedback(String feedback) {
+    return 'Sent back: $feedback';
+  }
+
+  @override
+  String get botsGoalStagePending => 'Not started';
+
+  @override
+  String get botsGoalStageActive => 'In progress';
+
+  @override
+  String get botsGoalStagePassed => 'Passed';
+
+  @override
+  String get botsGoalStageUnknown => 'Unknown';
+
+  @override
+  String get botsGoalTaskPending => 'Not started';
+
+  @override
+  String get botsGoalTaskWorking => 'Working';
+
+  @override
+  String get botsGoalTaskReported => 'Reported';
+
+  @override
+  String get botsGoalTaskDone => 'Done';
+
+  @override
+  String get botsGoalTaskUnknown => 'Unknown';
+
+  @override
+  String get botsGoalStatusDrafting => 'Drafting';
+
+  @override
+  String get botsGoalStatusActive => 'Active';
+
+  @override
+  String get botsGoalStatusPaused => 'Paused';
+
+  @override
+  String get botsGoalStatusComplete => 'Complete';
+
+  @override
+  String get botsGoalStatusStopped => 'Stopped';
+
+  @override
+  String get botsGoalStatusUnknown => 'Unknown';
 
   @override
   String get brandXiaomi => 'Xiaomi / Redmi';
@@ -20023,6 +20360,237 @@ class L10nEn extends L10n {
 
   @override
   String get voiceModelNoticeFailed => 'Voice model download failed. Open the app to retry.';
+
+  @override
+  String get vmodeTitle => 'Read aloud';
+
+  @override
+  String get vmodeNotServed => 'This host does not have the voice mode plugin';
+
+  @override
+  String get vmodeNotEnabled => 'The voice mode plugin is off';
+
+  @override
+  String get vmodeEnabling => 'Enabling…';
+
+  @override
+  String get vmodeEnable => 'Enable voice mode';
+
+  @override
+  String get vmodeOff => 'Voice off';
+
+  @override
+  String get vmodeListening => 'Listening';
+
+  @override
+  String get vmodeThinking => 'Thinking';
+
+  @override
+  String get vmodeSpeaking => 'Speaking';
+
+  @override
+  String get vmodeBusy => 'Working';
+
+  @override
+  String get vmodeHeldByOther => 'Another chat holds the microphone';
+
+  @override
+  String get vmodeDegraded => 'The live feed dropped; falling back to polling';
+
+  @override
+  String get vmodeReconnecting => 'Reconnecting the voice feed';
+
+  @override
+  String get vmodeStartListening => 'Speak';
+
+  @override
+  String get vmodeStopListening => 'Stop';
+
+  @override
+  String get vmodeInterrupt => 'Interrupt';
+
+  @override
+  String get vmodeReadAloud => 'Read aloud';
+
+  @override
+  String get vmodeReadAloudVoice => 'Voice turns only';
+
+  @override
+  String get vmodeReadAloudAlways => 'Every reply';
+
+  @override
+  String get vmodeReadAloudOff => 'Never';
+
+  @override
+  String get vmodeCaptions => 'Captions';
+
+  @override
+  String get vmodeStatusBar => 'Status bar';
+
+  @override
+  String get vmodeShowCaptions => 'Show captions';
+
+  @override
+  String get vmodeShowStatusBar => 'Show the status bar';
+
+  @override
+  String get vmodeTrigger => 'Trigger';
+
+  @override
+  String get vmodeTriggerToggle => 'Tap to start, tap to finish';
+
+  @override
+  String get vmodeTriggerHold => 'Hold to talk';
+
+  @override
+  String get vmodeTriggerOnce => 'One phrase only';
+
+  @override
+  String get vmodeSettings => 'Voice settings';
+
+  @override
+  String get vmodeSettingsManaged => 'dsh manages these settings; change them in the settings panel';
+
+  @override
+  String get vmodeSettingsRejected => 'The plugin refused that setting';
+
+  @override
+  String get vmodeSettingsSaved => 'Saved';
+
+  @override
+  String get vmodeSettingsFailed => 'That setting did not save';
+
+  @override
+  String get vmodeEngine => 'Engine';
+
+  @override
+  String get vmodeEngineEdge => 'Edge cloud';
+
+  @override
+  String get vmodeEngineKokoro => 'Kokoro local';
+
+  @override
+  String get vmodeEngineVits => 'VITS local';
+
+  @override
+  String get vmodeVoice => 'Voice';
+
+  @override
+  String get vmodeRate => 'Rate';
+
+  @override
+  String vmodeRateValue(String rate) {
+    return '$rate×';
+  }
+
+  @override
+  String get vmodeBargeIn => 'Interrupt by';
+
+  @override
+  String get vmodeBargeInAuto => 'Automatic';
+
+  @override
+  String get vmodeBargeInManual => 'Manual';
+
+  @override
+  String get vmodeBargeInDetect => 'Detected speech';
+
+  @override
+  String get vmodeSilence => 'End of speech';
+
+  @override
+  String vmodeSilenceValue(int ms) {
+    return '$ms ms';
+  }
+
+  @override
+  String get vmodeIdleTimeout => 'Idle hang-up';
+
+  @override
+  String vmodeIdleTimeoutValue(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get vmodeModelsReady => 'Models ready';
+
+  @override
+  String get vmodeModelsNotReady => 'Models not ready';
+
+  @override
+  String get vmodeModelsAsr => 'Recognition model';
+
+  @override
+  String get vmodeModelsTts => 'Speech model';
+
+  @override
+  String get vmodeModelsRetry => 'Retry loading models';
+
+  @override
+  String vmodeModelsDownloading(String file, int percent) {
+    return 'Downloading $file: $percent%';
+  }
+
+  @override
+  String get vmodeEngineStruggling => 'Speech keeps failing; the cloud may be unreachable';
+
+  @override
+  String get vmodePreview => 'Preview';
+
+  @override
+  String get vmodePreviewFailed => 'The preview failed';
+
+  @override
+  String get vmodePreviewNetwork => 'The preview cannot reach the cloud';
+
+  @override
+  String get vmodePreviewEngine => 'The speech engine failed';
+
+  @override
+  String get vmodePreviewText => 'This text cannot be spoken';
+
+  @override
+  String get vmodePreviewUnknown => 'The preview failed for an unknown reason';
+
+  @override
+  String get vmodeVoiceListFailed => 'Could not read the voice list';
+
+  @override
+  String get vmodeDisabled => 'Voice is switched off in this configuration';
+
+  @override
+  String get vmodeUnknownSession => 'That chat no longer exists';
+
+  @override
+  String get vmodeLatencyFirstToken => 'first token';
+
+  @override
+  String get vmodeLatencyFirstSentence => 'first sentence';
+
+  @override
+  String vmodeLatencyValue(String stage, int ms) {
+    return '$stage: $ms ms';
+  }
+
+  @override
+  String vmodeToolRunning(String name) {
+    return 'Running $name';
+  }
+
+  @override
+  String get vmodeAsrFailed => 'Recognition failed';
+
+  @override
+  String vmodeTtsSkipped(String text) {
+    return 'Speech skipped: $text';
+  }
+
+  @override
+  String get vmodeCatalogTitle => 'Voice and reading';
+
+  @override
+  String get vmodeCatalogSummary =>
+      'Turn reading and captions on or off, pick the trigger, engine and voice, and reload the speech models.';
 
   @override
   String get voiceScribeReadFailed => 'Could not read voice settings. Retry.';

@@ -13,6 +13,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'voice_model_assets_test.dart' show rc2Lock;
 
+/// Waits for [done], which the controller settles off the test's clock.
+Future<void> _until(bool Function() done, {String what = 'condition', Duration timeout = const Duration(seconds: 10)}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!done()) {
+    if (DateTime.now().isAfter(deadline)) fail('timed out waiting for $what');
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 // The default carrier still uses Dart's real sockets under Flutter's binding.
 class _RealHttp extends HttpOverrides {}
 
@@ -184,14 +193,28 @@ class _Rig {
 
   Future<void> foregroundRefreshToAbsent() async {
     final absent = Completer<void>();
+    // `fireImmediately` closes the window where a refresh lands before the
+    // listener is wired: the observer would otherwise wait for a transition
+    // that has already happened.
     final sub = container.listen(voiceModelProvider, (_, next) {
       if (next.status == VoiceModelStatus.absent && !absent.isCompleted) absent.complete();
-    });
+    }, fireImmediately: true);
     try {
-      // The actual VoiceModelHost.onShow entry. Once this refresh observes
-      // cancelled, VoiceModelCard exposes its download action again.
+      // The actual VoiceModelHost.onShow entry. Coming back on screen is an
+      // event that fires every time, so knock once and then let the owner of
+      // the state drive it: while a preparation poll is armed, `refresh()`
+      // returns early (`voice_model_state.dart:390`) and awaits nothing, so
+      // looping on it here would only spin without ever advancing the state.
+      // The caller sets `pollEvery` low enough for that poll to converge.
       controller.setForeground(true);
-      await absent.future;
+      await controller.refresh();
+      await absent.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => fail(
+          'the foreground refresh never published an absent state '
+          '(status: ${state.status})',
+        ),
+      );
     } finally {
       sub.close();
     }
@@ -221,6 +244,10 @@ void main() {
   });
 
   test('a settled cancel ACK arriving after foreground refresh and retry cannot clear the new preparation', () async {
+    // A preparation poll that is already armed owns the state: `refresh()`
+    // returns early while it lives, so the clock has to tick for the poll
+    // itself to read the Host's settled phase.
+    VoiceModelController.pollEvery = const Duration(milliseconds: 20);
     final rig = await _Rig.open();
     expect(rig.state.status, VoiceModelStatus.preparing);
     rig.controller.setForeground(false);
@@ -249,6 +276,10 @@ void main() {
   });
 
   test('a current cancel waits for preparation settlement and keeps normal retry working', () async {
+    // A preparation poll that is already armed owns the state: `refresh()`
+    // returns early while it lives, so the clock has to tick for the poll
+    // itself to read the Host's settled phase.
+    VoiceModelController.pollEvery = const Duration(milliseconds: 20);
     final rig = await _Rig.open();
     var cancelDone = false;
     final cancelling = rig.controller.cancel().then((_) => cancelDone = true);
@@ -260,9 +291,17 @@ void main() {
     rig.host.preparationExit.complete();
     await cancelling;
     expect(rig.host.preparationSettled.isCompleted, isTrue);
+    // `cancel()` resolves when the Host answers; the controller publishes the
+    // settled snapshot on a later microtask, so read the state after it lands
+    // rather than on the instant the future completes. The platform notice is
+    // a second, independently paced channel (`cancel()` clears it, then the
+    // `unawaited(refresh())` it schedules can republish a line for the phase
+    // the Host still reports), so wait for each to settle on its own instead
+    // of requiring both to be true at one sampled instant.
+    await _until(() => rig.state.status == VoiceModelStatus.absent, what: 'the settled cancel');
     expect(rig.state.status, VoiceModelStatus.absent);
     expect(rig.state.wanted, isFalse);
-    expect(rig.platform.notices.last.$1, isNull);
+    await _until(() => rig.platform.notices.last.$1 == null, what: 'the cleared notice (${rig.platform.notices})');
     await rig.controller.download();
     expect(rig.host.prepares, 1);
     expect(rig.state.status, VoiceModelStatus.preparing);

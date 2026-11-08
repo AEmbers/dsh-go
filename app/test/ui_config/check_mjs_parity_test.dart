@@ -11,9 +11,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support.dart';
 
 String? _node() {
-  for (final dir in (Platform.environment['PATH'] ?? '').split(':')) {
+  final sep = Platform.isWindows ? ';' : ':';
+  for (final dir in (Platform.environment['PATH'] ?? '').split(sep)) {
     if (dir.isEmpty) continue;
-    if (File('$dir/node').existsSync()) return '$dir/node';
+    for (final name in ['node.exe', 'node']) {
+      final candidate = '$dir${Platform.pathSeparator}$name';
+      if (File(candidate).existsSync()) return candidate;
+    }
   }
   return null;
 }
@@ -24,7 +28,9 @@ void main() {
   final checker = '$appDir/assets/skills/dsh-go-ui/check.mjs';
 
   Future<ProcessResult> run(List<String> args, {Map<String, String>? env, String? stdin}) async {
-    if (stdin == null) return Process.run(node!, [checker, ...args], environment: env);
+    if (stdin == null) {
+      return Process.run(node!, [checker, ...args], environment: env, stdoutEncoding: utf8, stderrEncoding: utf8);
+    }
     final process = await Process.start(node!, [checker, ...args], environment: env);
     process.stdin.write(stdin);
     await process.stdin.close();
@@ -103,9 +109,14 @@ void main() {
         ['${scripts.path}/check.mjs', '--json'],
         environment: env,
         includeParentEnvironment: false,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
       );
       expect(installed.exitCode, 0, reason: '${installed.stderr}');
-      expect((jsonDecode(installed.stdout as String) as Map)['file'], '${home.path}/dsh-go/ui.json');
+      // node joins paths with the platform separator; a hard-coded '/' is
+      // only right on POSIX.
+      final expectedFile = [home.path, 'dsh-go', 'ui.json'].join(Platform.pathSeparator);
+      expect((jsonDecode(installed.stdout as String) as Map)['file'], expectedFile);
 
       final viaEnv = await run(['--json'], env: {'DSH_HOME': home.path});
       expect((jsonDecode(viaEnv.stdout as String) as Map)['applied'], 1);

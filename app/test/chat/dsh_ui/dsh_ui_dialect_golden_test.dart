@@ -87,11 +87,15 @@ final explainer = j({
   ],
 });
 
+/// The chat hands the card `onAction` (chat_list.dart:954), so a genui button
+/// draws as a live button and not as 「可交互内容 · 在网页版查看」. Without it the
+/// card would be drawn read-only, which is a state the app never shows.
 Widget block(String source) => DshUiScope(
   sessionId: 's1',
   messageId: 'a1',
   state: DshUiState.live,
   onReply: (_) async => true,
+  onAction: (_) async => true,
   onAskResend: (_) async => true,
   child: DshUiBlock(source: source),
 );

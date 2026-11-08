@@ -8,7 +8,14 @@ library;
 
 import 'json.dart';
 
-sealed class DshException implements Exception {
+// `base`, not `sealed`: the per-plugin API libraries (`agent_teams_api.dart`,
+// `voice_mode_api.dart`) declare their own failure types next to the routes
+// that raise them, and a sealed class cannot be extended outside this library.
+// `base` keeps the invariant that matters here — every subtype is `final`, so
+// no caller can add behaviour on top of a transport failure — while letting a
+// route library name its own 4xx. Nothing switches exhaustively over the
+// subtype set; callers match the two they care about and keep a `_` arm.
+base class DshException implements Exception {
   const DshException(this.message);
   final String message;
 

@@ -6,6 +6,7 @@ import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
 
 import '../../../l10n/l10n.dart';
+import '../../agents/team_inline_card.dart' show AgentTeamsInlineCard, agentTeamsCreateMetaOf;
 import '../../common/expand_reveal.dart';
 import '../../common/fluid_bits.dart';
 import '../../common/overscroll_forwarder.dart';
@@ -100,7 +101,9 @@ class _ToolRowState extends State<ToolRow> {
   ToolView get view => _view = ToolView.of(widget.item, _view);
 
   bool _expandedFor(ToolView v) =>
-      _toggled ?? (widget.card == ToolCardPlacement.inline && (v.pluginView is DshUiParsed || v.media != null));
+      _toggled ??
+      (widget.card == ToolCardPlacement.inline &&
+          (v.pluginView is DshUiParsed || v.media != null || agentTeamsCreateMetaOf(widget.item) != null));
 
   @override
   Widget build(BuildContext context) {
@@ -111,6 +114,12 @@ class _ToolRowState extends State<ToolRow> {
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: MediaCard(meta: media),
+        );
+      }
+      if (agentTeamsCreateMetaOf(widget.item) case final team?) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: AgentTeamsInlineCard.fromMeta(team),
         );
       }
       return switch (v.pluginView) {
@@ -127,6 +136,8 @@ class _ToolRowState extends State<ToolRow> {
     final pending = auto ? null : request;
     final opener = widget.onOpenSubagent;
     final child = opener == null ? null : subagentIdOf(widget.item, v);
+    // agent-teams 的调用不写 `meta["dsh-go/view"]`,卡片由工具名加结果身份认出来。
+    final team = widget.card == ToolCardPlacement.inline ? agentTeamsCreateMetaOf(widget.item) : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -156,6 +167,8 @@ class _ToolRowState extends State<ToolRow> {
                 parse: parse,
                 fallback: ToolDetail(view: v),
               ),
+              // agent-teams 的调用不写 `dsh-go/view`,卡片由工具名加结果身份认出来。
+              _ when team != null => AgentTeamsInlineCard.fromMeta(team),
               _ => ToolDetail(view: v),
             },
           ),

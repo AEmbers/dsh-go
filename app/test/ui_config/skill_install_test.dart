@@ -112,14 +112,14 @@ void main() {
     Future<ProcessResult> sh(String script, Map<String, String> env) =>
         Process.run('/bin/sh', ['-c', script], environment: env, includeParentEnvironment: false);
 
-    test('the SSH script writes the skill under \$DSH_HOME, byte for byte', () async {
+    test('the SSH script writes the skill under \$DSH_HOME, byte for byte', skip: Platform.isWindows ? 'needs /bin/sh' : false, () async {
       final r = await sh(uiSkillShellScript(bundle), {'DSH_HOME': '${home.path}/dsh', 'PATH': '/usr/bin:/bin'});
       expect(r.exitCode, 0, reason: '${r.stderr}');
       expect(r.stdout, contains('DSHAPP skill=installed'));
       expectInstalled(Directory('${home.path}/dsh/skills/dsh-go-ui'));
     });
 
-    test('without DSH_HOME it uses ~/.dsh, and leaves a folder the person took over', () async {
+    test('without DSH_HOME it uses ~/.dsh, and leaves a folder the person took over', skip: Platform.isWindows ? 'needs /bin/sh' : false, () async {
       final env = {'HOME': home.path, 'PATH': '/usr/bin:/bin'};
       expect((await sh(uiSkillShellScript(bundle), env)).exitCode, 0);
       final dir = Directory('${home.path}/.dsh/skills/dsh-go-ui');

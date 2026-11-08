@@ -8,10 +8,12 @@
 // task, and [HeaderTrailingSlot] adds the agents capsule before the model chip
 // (a child has no model chip: its model belongs to its parent's routing).
 
+import 'package:dsh_client/dsh_client.dart' show AgentTeamSnapshot;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../state/agent_teams_state.dart';
 import '../../state/agents_state.dart';
 import '../../state/sessions_state.dart';
 import '../common/fluid_bits.dart';
@@ -19,6 +21,7 @@ import '../common/status_dot.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import 'lineage_sheet.dart';
+import 'team_activity_page.dart';
 import 'team_page.dart';
 
 /// What the header shows for the conversation on screen; null for a new chat.
@@ -26,6 +29,16 @@ final _currentAgentsProvider = Provider.autoDispose<(String, HeaderAgents)?>((re
   final sessionId = ref.watch(currentSessionProvider);
   if (sessionId == null) return null;
   return (sessionId, ref.watch(headerAgentsProvider(sessionId)));
+});
+
+/// The `@nanmicoder/dsh-agent-teams` team this chat captains, if any.
+///
+/// A separate provider from [_currentAgentsProvider]: that one reads the
+/// official experimental projection, this one the plugin's own snapshot, and a
+/// chat may have either, both or neither.
+final _currentPluginTeamProvider = Provider.autoDispose<AgentTeamSnapshot?>((ref) {
+  final sessionId = ref.watch(currentSessionProvider);
+  return sessionId == null ? null : ref.watch(sessionAgentTeamProvider(sessionId));
 });
 
 /// The left key: [menu] (the drawer), or 「‹ 上级对话」 in a subagent
@@ -77,8 +90,12 @@ class HeaderTrailingSlot extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final current = ref.watch(_currentAgentsProvider);
     final agents = current?.$2;
-    final key = agents == null ? null : HeaderAgentsKey(sessionId: current!.$1, agents: agents);
-    final showsKey = agents != null && (agents.hasTeam || agents.children > 0);
+    final pluginTeam = ref.watch(_currentPluginTeamProvider);
+    final key = agents == null
+        ? null
+        : HeaderAgentsKey(sessionId: current!.$1, agents: agents, pluginTeam: pluginTeam);
+    final showsKey =
+        agents != null && (agents.hasTeam || agents.children > 0 || pluginTeam != null);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -142,11 +159,25 @@ class HeaderBackKey extends ConsumerWidget {
 /// else the subagents (「N 个子代理」; on a phone the compact form DSH Web
 /// also uses in a narrow header: glyph + count). A breathing dot on the glyph
 /// while any of them runs.
+///
+/// Two different Agent Teams can be here: the official experimental projection
+/// ([HeaderAgents.team], which opens [TeamPage]) and the
+/// `@nanmicoder/dsh-agent-teams` snapshot ([pluginTeam], which opens
+/// [TeamActivityPage]). The official one wins when both exist, because it is
+/// the one whose members are live sessions in this client.
 class HeaderAgentsKey extends StatelessWidget {
-  const HeaderAgentsKey({super.key, required this.sessionId, required this.agents});
+  const HeaderAgentsKey({
+    super.key,
+    required this.sessionId,
+    required this.agents,
+    this.pluginTeam,
+  });
 
   final String sessionId;
   final HeaderAgents agents;
+
+  /// The plugin's team captained by this chat, when the plugin is serving one.
+  final AgentTeamSnapshot? pluginTeam;
 
   static const height = 44.0;
   static const padding = 14.0;
@@ -157,15 +188,21 @@ class HeaderAgentsKey extends StatelessWidget {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final team = agents.hasTeam ? agents.team : null;
-    final count = team != null ? team.teammates.length : agents.children;
-    final running = agents.running > 0;
-    final label = team != null
+    final plugin = team == null ? pluginTeam : null;
+    final count = team != null
+        ? team.teammates.length
+        : plugin != null
+        ? plugin.teammates.length
+        : agents.children;
+    final running = agents.running > 0 || (plugin?.workingCount ?? 0) > 0;
+    final isTeam = team != null || plugin != null;
+    final label = isTeam
         ? (count > 0 ? l10n.botsTeamMemberCount(count) : l10n.botsAgentTeam)
         : running
         ? l10n.botsSubagentRunningCount(count, agents.running)
         : l10n.botsSubagentCount(count);
     final icon = Icon(
-      team != null ? AppIcons.team : AppIcons.subagents,
+      isTeam ? AppIcons.team : AppIcons.subagents,
       size: glyph,
       color: theme.colorScheme.onSurface,
     );
@@ -191,6 +228,8 @@ class HeaderAgentsKey extends StatelessWidget {
     void open() {
       if (team != null) {
         Navigator.of(context).push(TeamPage.route(sessionId: sessionId));
+      } else if (plugin != null) {
+        Navigator.of(context).push(TeamActivityPage.route(sessionId: sessionId));
       } else {
         showLineageSheet(context, sessionId: sessionId);
       }
@@ -230,7 +269,7 @@ class HeaderAgentsKey extends StatelessWidget {
                         Text(
                           // Phones have room for the count only (next to
                           // the title and the model chip); tablets say it.
-                          MediaQuery.sizeOf(context).width >= 600 && team == null
+                          MediaQuery.sizeOf(context).width >= 600 && !isTeam
                               ? l10n.botsSubagentCount(count)
                               : '$count',
                           style: AppType.tabular(theme.textTheme.labelMedium!.copyWith(fontSize: 13, height: 1.2)),

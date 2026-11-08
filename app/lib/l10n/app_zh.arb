@@ -943,6 +943,142 @@
     }
   },
   "activityToolListSeparator": "、",
+  "ateamTitle": "团队面板",
+  "ateamNotServed": "这个主机没有安装 Agent Teams 插件",
+  "ateamNotEnabled": "Agent Teams 插件已关闭",
+  "ateamEnabling": "正在启用…",
+  "ateamEnable": "启用 Agent Teams",
+  "ateamNoTeams": "还没有团队",
+  "ateamNoTeamsMessage": "在这台主机上开一个团队对话后，成员和任务会出现在这里。",
+  "ateamReadFailed": "读取团队状态失败",
+  "ateamPhaseStaged": "等待批准",
+  "ateamPhaseRunning": "运行中",
+  "ateamPhaseArchived": "已归档",
+  "ateamPlanAwaitingReview": "计划等待你审阅",
+  "ateamPlanAwaitingFeedback": "计划等待你的意见",
+  "ateamApprove": "批准并启动",
+  "ateamContinue": "继续讨论",
+  "ateamDiscard": "丢弃计划",
+  "ateamHalt": "暂停团队",
+  "ateamHalted": "团队已暂停",
+  "ateamLoopHalted": "质量回路已停",
+  "ateamLoopDeliverable": "质量回路：可交付",
+  "ateamLoopEscalated": "质量回路已升级",
+  "ateamLoopRunning": "质量回路运行中",
+  "ateamLoopBlocked": "质量回路受阻",
+  "ateamDeliveryReady": "可以交付",
+  "ateamDeliveryBlocked": "尚不可交付",
+  "ateamBlockers": "阻断项",
+  "ateamWarnings": "提醒",
+  "ateamCaptain": "队长",
+  "ateamCaptainInbox": "队长信箱",
+  "ateamCaptainInboxEmpty": "队长信箱是空的",
+  "ateamMembers": "成员",
+  "ateamTasks": "任务",
+  "ateamOverview": "概览",
+  "ateamWorking": "工作中",
+  "ateamIdle": "空闲",
+  "ateamUnknown": "状态未知",
+  "ateamRemoved": "已离开",
+  "ateamMembersWorking": "{count} 位成员在跑",
+  "@ateamMembersWorking": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamMessagesCount": "{count} 条信箱消息",
+  "@ateamMessagesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamProgress": "{done}/{total}",
+  "@ateamProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamUnread": "{count} 条未读",
+  "@ateamUnread": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamRound": "第 {round} 轮",
+  "@ateamRound": {
+    "placeholders": {
+      "round": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamVerdict": "判定：{verdict}",
+  "@ateamVerdict": {
+    "placeholders": {
+      "verdict": {
+        "type": "String"
+      }
+    }
+  },
+  "ateamVerdictStale": "判定已过期",
+  "ateamTaskDependencies": "依赖 {count} 个任务",
+  "@ateamTaskDependencies": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamLane": "第 {depth} 层",
+  "@ateamLane": {
+    "placeholders": {
+      "depth": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamTaskStateCompleted": "已完成",
+  "ateamTaskStateFailed": "失败",
+  "ateamTaskStateCancelled": "已取消",
+  "ateamTaskStateRunning": "进行中",
+  "ateamTaskStateClaimed": "已认领",
+  "ateamTaskStateBlocked": "等待依赖",
+  "ateamTaskStateOpen": "可开始",
+  "ateamQualityKind": "质量门禁",
+  "ateamDescription": "说明",
+  "ateamAssignee": "执行者",
+  "ateamCurrentTask": "当前任务",
+  "ateamModelRoute": "模型",
+  "ateamEffort": "思考深度",
+  "ateamExecutionPrompt": "执行提示",
+  "ateamOpenChat": "打开对话",
+  "ateamErrorUnavailable": "这个主机没有团队接口",
+  "ateamErrorCaptainDetached": "队长对话没挂载，先打开队长对话",
+  "ateamErrorTeamMissing": "这个团队已经不属于该队长",
+  "ateamErrorRejected": "插件拒绝了这次操作",
+  "ateamErrorFailed": "操作失败",
+  "ateamUpdatedJustNow": "刚刚更新",
+  "ateamHaltConfirmTitle": "暂停整个团队？",
+  "ateamHaltConfirmBody": "所有成员会停止当前回合，团队本身留在原处。",
+  "ateamDiscardConfirmTitle": "丢弃这个计划？",
+  "ateamDiscardConfirmBody": "计划会被归档，不能再批准。",
+  "ateamHaltedNote": "团队暂停",
+  "ateamStateNote": "团队状态",
+  "ateamLoop": "质量回路",
+  "ateamCatalogTitle": "团队面板",
+  "ateamCatalogSummary": "批准待审的计划，看成员、任务依赖与队长信箱，随时暂停团队。",
+  "ateamCardOpenPanel": "打开团队面板",
   "botsFolderGone": "这个文件夹已经不在了",
   "botsFolderReadFailed": "没能读取这个文件夹",
   "botsFolderOpenFailed": "打不开这个文件夹",
@@ -1892,6 +2028,64 @@
   "botsMobileApiRequired": "可先在网页版中使用",
   "botsMobileApiMissing": "手机端暂不支持，可先在网页版中使用",
   "botsCreationConnectionChanged": "连接已变化，请重新打开创建页面后再操作。",
+  "botsGoalBoard": "群目标",
+  "botsGoalStageOf": "阶段 {current}/{count}",
+  "@botsGoalStageOf": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "botsGoalPassedCount": "已过 {passed} 个阶段",
+  "@botsGoalPassedCount": {
+    "placeholders": {
+      "passed": {
+        "type": "int"
+      }
+    }
+  },
+  "botsGoalObjective": "目标",
+  "botsGoalAcceptance": "完成标准",
+  "botsGoalConstraints": "规则",
+  "botsGoalSummary": "结果",
+  "botsGoalEvidence": "证据",
+  "botsGoalReason": "停止原因",
+  "botsGoalCurrent": "当前阶段",
+  "botsGoalReworks": "返工 {count} 次",
+  "@botsGoalReworks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "botsGoalFeedback": "退回意见：{feedback}",
+  "@botsGoalFeedback": {
+    "placeholders": {
+      "feedback": {
+        "type": "String"
+      }
+    }
+  },
+  "botsGoalStagePending": "待开始",
+  "botsGoalStageActive": "进行中",
+  "botsGoalStagePassed": "已完成",
+  "botsGoalStageUnknown": "未知状态",
+  "botsGoalTaskPending": "未开始",
+  "botsGoalTaskWorking": "进行中",
+  "botsGoalTaskReported": "已汇报",
+  "botsGoalTaskDone": "已完成",
+  "botsGoalTaskUnknown": "未知状态",
+  "botsGoalStatusDrafting": "草拟中",
+  "botsGoalStatusActive": "进行中",
+  "botsGoalStatusPaused": "已暂停",
+  "botsGoalStatusComplete": "已完成",
+  "botsGoalStatusStopped": "已停止",
+  "botsGoalStatusUnknown": "未知状态",
   "brandXiaomi": "小米 / Redmi",
   "brandHuawei": "华为",
   "brandHonor": "荣耀",
@@ -12312,6 +12506,133 @@
   },
   "voiceModelNoticePreparing": "正在校验语音模型",
   "voiceModelNoticeFailed": "语音模型下载失败，打开 App 重试",
+  "vmodeTitle": "语音朗读",
+  "vmodeNotServed": "这个主机没有安装语音模式插件",
+  "vmodeNotEnabled": "语音模式插件已关闭",
+  "vmodeEnabling": "正在启用…",
+  "vmodeEnable": "启用语音模式",
+  "vmodeOff": "语音关闭",
+  "vmodeListening": "正在听",
+  "vmodeThinking": "思考中",
+  "vmodeSpeaking": "朗读中",
+  "vmodeBusy": "处理中",
+  "vmodeHeldByOther": "另一个对话在用麦克风",
+  "vmodeDegraded": "推送已断开，正在用轮询兜底",
+  "vmodeReconnecting": "正在重连语音推送",
+  "vmodeStartListening": "开始说话",
+  "vmodeStopListening": "停止",
+  "vmodeInterrupt": "打断朗读",
+  "vmodeReadAloud": "朗读",
+  "vmodeReadAloudVoice": "仅语音回合",
+  "vmodeReadAloudAlways": "每条回复",
+  "vmodeReadAloudOff": "不朗读",
+  "vmodeCaptions": "字幕",
+  "vmodeStatusBar": "状态条",
+  "vmodeShowCaptions": "显示字幕",
+  "vmodeShowStatusBar": "显示状态条",
+  "vmodeTrigger": "触发方式",
+  "vmodeTriggerToggle": "按一下开始，再按一下结束",
+  "vmodeTriggerHold": "按住说话",
+  "vmodeTriggerOnce": "只说一句",
+  "vmodeSettings": "语音设置",
+  "vmodeSettingsManaged": "设置由 dsh 托管，请在设置面板修改",
+  "vmodeSettingsRejected": "插件没有接受这组设置",
+  "vmodeSettingsSaved": "设置已保存",
+  "vmodeSettingsFailed": "设置没有保存成功",
+  "vmodeEngine": "语音引擎",
+  "vmodeEngineEdge": "Edge 云端",
+  "vmodeEngineKokoro": "Kokoro 本地",
+  "vmodeEngineVits": "VITS 本地",
+  "vmodeVoice": "音色",
+  "vmodeRate": "语速",
+  "vmodeRateValue": "{rate}×",
+  "@vmodeRateValue": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      }
+    }
+  },
+  "vmodeBargeIn": "打断方式",
+  "vmodeBargeInAuto": "自动",
+  "vmodeBargeInManual": "手动",
+  "vmodeBargeInDetect": "识别到人声",
+  "vmodeSilence": "停顿判定",
+  "vmodeSilenceValue": "{ms} 毫秒",
+  "@vmodeSilenceValue": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeIdleTimeout": "空闲挂断",
+  "vmodeIdleTimeoutValue": "{minutes} 分钟",
+  "@vmodeIdleTimeoutValue": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeModelsReady": "模型就绪",
+  "vmodeModelsNotReady": "模型未就绪",
+  "vmodeModelsAsr": "识别模型",
+  "vmodeModelsTts": "合成模型",
+  "vmodeModelsRetry": "重试加载模型",
+  "vmodeModelsDownloading": "下载模型：{file} {percent}%",
+  "@vmodeModelsDownloading": {
+    "placeholders": {
+      "file": {
+        "type": "String"
+      },
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeEngineStruggling": "合成连续失败，可能连不上云端",
+  "vmodePreview": "试听",
+  "vmodePreviewFailed": "试听失败",
+  "vmodePreviewNetwork": "试听连不上云端",
+  "vmodePreviewEngine": "合成引擎报错",
+  "vmodePreviewText": "这段文本合成不了",
+  "vmodePreviewUnknown": "试听失败，原因不明",
+  "vmodeVoiceListFailed": "读不到音色列表",
+  "vmodeDisabled": "语音已被这轮设置关闭",
+  "vmodeUnknownSession": "这个对话已经不存在",
+  "vmodeLatencyFirstToken": "首字",
+  "vmodeLatencyFirstSentence": "首句",
+  "vmodeLatencyValue": "{stage} {ms} 毫秒",
+  "@vmodeLatencyValue": {
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      },
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeToolRunning": "正在跑 {name}",
+  "@vmodeToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "vmodeAsrFailed": "识别失败",
+  "vmodeTtsSkipped": "跳过朗读：{text}",
+  "@vmodeTtsSkipped": {
+    "placeholders": {
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "vmodeCatalogTitle": "语音朗读",
+  "vmodeCatalogSummary": "开关朗读与字幕，切换触发方式、引擎与音色，重载语音模型。",
   "voiceScribeReadFailed": "没能读取语音设置，请重试。",
   "voiceScribeSavedReadFailed": "已保存，刷新后可查看最新设置。",
   "voiceScribeSaveUnconfirmed": "没能确认保存，请刷新或重试。",

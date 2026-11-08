@@ -4,7 +4,7 @@
 
 ## 中文
 
-- [对话](zh/01-chat.md)：新对话、模型、图片与语音、插话与排队、提问与授权、消息菜单、对话列表、外接键盘
+- [对话](zh/01-chat.md)：新对话、模型、图片与语音、朗读回复、插话与排队、提问与授权、消息菜单、对话列表、外接键盘
 - [模型与渠道](zh/02-models.md)：切换模型、思考深度、自定义渠道、模型设置、DeepSeek 账号与 API Key
 - [本机引擎与远程主机](zh/03-engine-hosts.md)：本机或远程、启动与自动启动、重置、卸载、切换主机、SSH、DSH Remote
 - [手机操控](zh/04-phone-control.md)：开启、悬浮条、停止、确认方式、后台确认与返回、应用名单、解除限制、不打扰模式
@@ -15,11 +15,11 @@
 - [外观](zh/09-appearance.md)：明暗、配色、图标与图片快捷方式、启动画面、壁纸、对话字号
 - [设置](zh/10-settings.md)：设置页每一项的作用、检查更新
 - [常见问题](zh/11-faq.md)：连不上、后台被关、引擎启动、手机操控、宠物、插件、App 发送的数据
-- [DS Bot](zh/12-bots.md)：手机端支持、工作目录、复制 Bot
+- [DS Bot](zh/12-bots.md)：手机端支持、工作目录、复制 Bot、智能体团队、团队面板
 
 ## English
 
-- [Chat](en/01-chat.md): new chats, models, images and voice, steering and queueing, questions and approvals, message menu, chat list, hardware keyboard
+- [Chat](en/01-chat.md): new chats, models, images and voice, reading replies out loud, steering and queueing, questions and approvals, message menu, chat list, hardware keyboard
 - [Models and providers](en/02-models.md): switching models, thinking effort, custom providers, model settings, DeepSeek account and API key
 - [Engine and remote hosts](en/03-engine-hosts.md): this phone or remote, starting and auto-start, reset, uninstall, switching hosts, SSH, DSH Remote
 - [Phone control](en/04-phone-control.md): turning it on, floating bar, stopping, confirmation, confirmations and return, app rules, lifting limits, non-disruptive mode
@@ -30,4 +30,4 @@
 - [Appearance](en/09-appearance.md): light and dark, colors, icons and picture shortcuts, launch screen, wallpaper, chat text size
 - [Settings](en/10-settings.md): what each setting does, checking for updates
 - [Troubleshooting](en/11-faq.md): connection, background, engine start, phone control, pets, plugins, what the app sends
-- [DS Bot](en/12-bots.md): mobile support, working directories, duplicating a Bot
+- [DS Bot](en/12-bots.md): mobile support, working directories, duplicating a Bot, agent teams, the team panel

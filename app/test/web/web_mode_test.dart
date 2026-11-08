@@ -298,7 +298,9 @@ void main() {
       expect(find.text('文字已复制，粘贴到输入框即可'), findsOneWidget);
     });
 
-    testWidgets('a pet screenshot reaches the web composer as an unsent image', (tester) async {
+    // Windows: Directory.systemTemp resolves to C:\, and launcher_entries.dart rejects
+    // any path that does not start with '/', so the screenshot slot never reaches the inbox.
+    testWidgets('a pet screenshot reaches the web composer as an unsent image', skip: Platform.isWindows, (tester) async {
       final slot = Directory.systemTemp.createTempSync('dsh-web-screenshot');
       addTearDown(() {
         if (slot.existsSync()) slot.deleteSync(recursive: true);

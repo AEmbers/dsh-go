@@ -2942,6 +2942,468 @@ abstract class L10n {
   /// **'、'**
   String get activityToolListSeparator;
 
+  /// No description provided for @ateamTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'团队面板'**
+  String get ateamTitle;
+
+  /// No description provided for @ateamNotServed.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个主机没有安装 Agent Teams 插件'**
+  String get ateamNotServed;
+
+  /// No description provided for @ateamNotEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'Agent Teams 插件已关闭'**
+  String get ateamNotEnabled;
+
+  /// No description provided for @ateamEnabling.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在启用…'**
+  String get ateamEnabling;
+
+  /// No description provided for @ateamEnable.
+  ///
+  /// In zh, this message translates to:
+  /// **'启用 Agent Teams'**
+  String get ateamEnable;
+
+  /// No description provided for @ateamNoTeams.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有团队'**
+  String get ateamNoTeams;
+
+  /// No description provided for @ateamNoTeamsMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'在这台主机上开一个团队对话后，成员和任务会出现在这里。'**
+  String get ateamNoTeamsMessage;
+
+  /// No description provided for @ateamReadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'读取团队状态失败'**
+  String get ateamReadFailed;
+
+  /// No description provided for @ateamPhaseStaged.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待批准'**
+  String get ateamPhaseStaged;
+
+  /// No description provided for @ateamPhaseRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行中'**
+  String get ateamPhaseRunning;
+
+  /// No description provided for @ateamPhaseArchived.
+  ///
+  /// In zh, this message translates to:
+  /// **'已归档'**
+  String get ateamPhaseArchived;
+
+  /// No description provided for @ateamPlanAwaitingReview.
+  ///
+  /// In zh, this message translates to:
+  /// **'计划等待你审阅'**
+  String get ateamPlanAwaitingReview;
+
+  /// No description provided for @ateamPlanAwaitingFeedback.
+  ///
+  /// In zh, this message translates to:
+  /// **'计划等待你的意见'**
+  String get ateamPlanAwaitingFeedback;
+
+  /// No description provided for @ateamApprove.
+  ///
+  /// In zh, this message translates to:
+  /// **'批准并启动'**
+  String get ateamApprove;
+
+  /// No description provided for @ateamContinue.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续讨论'**
+  String get ateamContinue;
+
+  /// No description provided for @ateamDiscard.
+  ///
+  /// In zh, this message translates to:
+  /// **'丢弃计划'**
+  String get ateamDiscard;
+
+  /// No description provided for @ateamHalt.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂停团队'**
+  String get ateamHalt;
+
+  /// No description provided for @ateamHalted.
+  ///
+  /// In zh, this message translates to:
+  /// **'团队已暂停'**
+  String get ateamHalted;
+
+  /// No description provided for @ateamLoopHalted.
+  ///
+  /// In zh, this message translates to:
+  /// **'质量回路已停'**
+  String get ateamLoopHalted;
+
+  /// No description provided for @ateamLoopDeliverable.
+  ///
+  /// In zh, this message translates to:
+  /// **'质量回路：可交付'**
+  String get ateamLoopDeliverable;
+
+  /// No description provided for @ateamLoopEscalated.
+  ///
+  /// In zh, this message translates to:
+  /// **'质量回路已升级'**
+  String get ateamLoopEscalated;
+
+  /// No description provided for @ateamLoopRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'质量回路运行中'**
+  String get ateamLoopRunning;
+
+  /// No description provided for @ateamLoopBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'质量回路受阻'**
+  String get ateamLoopBlocked;
+
+  /// No description provided for @ateamDeliveryReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'可以交付'**
+  String get ateamDeliveryReady;
+
+  /// No description provided for @ateamDeliveryBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'尚不可交付'**
+  String get ateamDeliveryBlocked;
+
+  /// No description provided for @ateamBlockers.
+  ///
+  /// In zh, this message translates to:
+  /// **'阻断项'**
+  String get ateamBlockers;
+
+  /// No description provided for @ateamWarnings.
+  ///
+  /// In zh, this message translates to:
+  /// **'提醒'**
+  String get ateamWarnings;
+
+  /// No description provided for @ateamCaptain.
+  ///
+  /// In zh, this message translates to:
+  /// **'队长'**
+  String get ateamCaptain;
+
+  /// No description provided for @ateamCaptainInbox.
+  ///
+  /// In zh, this message translates to:
+  /// **'队长信箱'**
+  String get ateamCaptainInbox;
+
+  /// No description provided for @ateamCaptainInboxEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'队长信箱是空的'**
+  String get ateamCaptainInboxEmpty;
+
+  /// No description provided for @ateamMembers.
+  ///
+  /// In zh, this message translates to:
+  /// **'成员'**
+  String get ateamMembers;
+
+  /// No description provided for @ateamTasks.
+  ///
+  /// In zh, this message translates to:
+  /// **'任务'**
+  String get ateamTasks;
+
+  /// No description provided for @ateamOverview.
+  ///
+  /// In zh, this message translates to:
+  /// **'概览'**
+  String get ateamOverview;
+
+  /// No description provided for @ateamWorking.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作中'**
+  String get ateamWorking;
+
+  /// No description provided for @ateamIdle.
+  ///
+  /// In zh, this message translates to:
+  /// **'空闲'**
+  String get ateamIdle;
+
+  /// No description provided for @ateamUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'状态未知'**
+  String get ateamUnknown;
+
+  /// No description provided for @ateamRemoved.
+  ///
+  /// In zh, this message translates to:
+  /// **'已离开'**
+  String get ateamRemoved;
+
+  /// No description provided for @ateamMembersWorking.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 位成员在跑'**
+  String ateamMembersWorking(int count);
+
+  /// No description provided for @ateamMessagesCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 条信箱消息'**
+  String ateamMessagesCount(int count);
+
+  /// No description provided for @ateamProgress.
+  ///
+  /// In zh, this message translates to:
+  /// **'{done}/{total}'**
+  String ateamProgress(int done, int total);
+
+  /// No description provided for @ateamUnread.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 条未读'**
+  String ateamUnread(int count);
+
+  /// No description provided for @ateamRound.
+  ///
+  /// In zh, this message translates to:
+  /// **'第 {round} 轮'**
+  String ateamRound(int round);
+
+  /// No description provided for @ateamVerdict.
+  ///
+  /// In zh, this message translates to:
+  /// **'判定：{verdict}'**
+  String ateamVerdict(String verdict);
+
+  /// No description provided for @ateamVerdictStale.
+  ///
+  /// In zh, this message translates to:
+  /// **'判定已过期'**
+  String get ateamVerdictStale;
+
+  /// No description provided for @ateamTaskDependencies.
+  ///
+  /// In zh, this message translates to:
+  /// **'依赖 {count} 个任务'**
+  String ateamTaskDependencies(int count);
+
+  /// No description provided for @ateamLane.
+  ///
+  /// In zh, this message translates to:
+  /// **'第 {depth} 层'**
+  String ateamLane(int depth);
+
+  /// No description provided for @ateamTaskStateCompleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已完成'**
+  String get ateamTaskStateCompleted;
+
+  /// No description provided for @ateamTaskStateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'失败'**
+  String get ateamTaskStateFailed;
+
+  /// No description provided for @ateamTaskStateCancelled.
+  ///
+  /// In zh, this message translates to:
+  /// **'已取消'**
+  String get ateamTaskStateCancelled;
+
+  /// No description provided for @ateamTaskStateRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get ateamTaskStateRunning;
+
+  /// No description provided for @ateamTaskStateClaimed.
+  ///
+  /// In zh, this message translates to:
+  /// **'已认领'**
+  String get ateamTaskStateClaimed;
+
+  /// No description provided for @ateamTaskStateBlocked.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待依赖'**
+  String get ateamTaskStateBlocked;
+
+  /// No description provided for @ateamTaskStateOpen.
+  ///
+  /// In zh, this message translates to:
+  /// **'可开始'**
+  String get ateamTaskStateOpen;
+
+  /// No description provided for @ateamQualityKind.
+  ///
+  /// In zh, this message translates to:
+  /// **'质量门禁'**
+  String get ateamQualityKind;
+
+  /// No description provided for @ateamDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'说明'**
+  String get ateamDescription;
+
+  /// No description provided for @ateamAssignee.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行者'**
+  String get ateamAssignee;
+
+  /// No description provided for @ateamCurrentTask.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前任务'**
+  String get ateamCurrentTask;
+
+  /// No description provided for @ateamModelRoute.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型'**
+  String get ateamModelRoute;
+
+  /// No description provided for @ateamEffort.
+  ///
+  /// In zh, this message translates to:
+  /// **'思考深度'**
+  String get ateamEffort;
+
+  /// No description provided for @ateamExecutionPrompt.
+  ///
+  /// In zh, this message translates to:
+  /// **'执行提示'**
+  String get ateamExecutionPrompt;
+
+  /// No description provided for @ateamOpenChat.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开对话'**
+  String get ateamOpenChat;
+
+  /// No description provided for @ateamErrorUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个主机没有团队接口'**
+  String get ateamErrorUnavailable;
+
+  /// No description provided for @ateamErrorCaptainDetached.
+  ///
+  /// In zh, this message translates to:
+  /// **'队长对话没挂载，先打开队长对话'**
+  String get ateamErrorCaptainDetached;
+
+  /// No description provided for @ateamErrorTeamMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个团队已经不属于该队长'**
+  String get ateamErrorTeamMissing;
+
+  /// No description provided for @ateamErrorRejected.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件拒绝了这次操作'**
+  String get ateamErrorRejected;
+
+  /// No description provided for @ateamErrorFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'操作失败'**
+  String get ateamErrorFailed;
+
+  /// No description provided for @ateamUpdatedJustNow.
+  ///
+  /// In zh, this message translates to:
+  /// **'刚刚更新'**
+  String get ateamUpdatedJustNow;
+
+  /// No description provided for @ateamHaltConfirmTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂停整个团队？'**
+  String get ateamHaltConfirmTitle;
+
+  /// No description provided for @ateamHaltConfirmBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'所有成员会停止当前回合，团队本身留在原处。'**
+  String get ateamHaltConfirmBody;
+
+  /// No description provided for @ateamDiscardConfirmTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'丢弃这个计划？'**
+  String get ateamDiscardConfirmTitle;
+
+  /// No description provided for @ateamDiscardConfirmBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'计划会被归档，不能再批准。'**
+  String get ateamDiscardConfirmBody;
+
+  /// No description provided for @ateamHaltedNote.
+  ///
+  /// In zh, this message translates to:
+  /// **'团队暂停'**
+  String get ateamHaltedNote;
+
+  /// No description provided for @ateamStateNote.
+  ///
+  /// In zh, this message translates to:
+  /// **'团队状态'**
+  String get ateamStateNote;
+
+  /// No description provided for @ateamLoop.
+  ///
+  /// In zh, this message translates to:
+  /// **'质量回路'**
+  String get ateamLoop;
+
+  /// No description provided for @ateamCatalogTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'团队面板'**
+  String get ateamCatalogTitle;
+
+  /// No description provided for @ateamCatalogSummary.
+  ///
+  /// In zh, this message translates to:
+  /// **'批准待审的计划，看成员、任务依赖与队长信箱，随时暂停团队。'**
+  String get ateamCatalogSummary;
+
+  /// No description provided for @ateamCardOpenPanel.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开团队面板'**
+  String get ateamCardOpenPanel;
+
   /// No description provided for @botsFolderGone.
   ///
   /// In zh, this message translates to:
@@ -5257,6 +5719,168 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'连接已变化，请重新打开创建页面后再操作。'**
   String get botsCreationConnectionChanged;
+
+  /// No description provided for @botsGoalBoard.
+  ///
+  /// In zh, this message translates to:
+  /// **'群目标'**
+  String get botsGoalBoard;
+
+  /// No description provided for @botsGoalStageOf.
+  ///
+  /// In zh, this message translates to:
+  /// **'阶段 {current}/{count}'**
+  String botsGoalStageOf(int current, int count);
+
+  /// No description provided for @botsGoalPassedCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'已过 {passed} 个阶段'**
+  String botsGoalPassedCount(int passed);
+
+  /// No description provided for @botsGoalObjective.
+  ///
+  /// In zh, this message translates to:
+  /// **'目标'**
+  String get botsGoalObjective;
+
+  /// No description provided for @botsGoalAcceptance.
+  ///
+  /// In zh, this message translates to:
+  /// **'完成标准'**
+  String get botsGoalAcceptance;
+
+  /// No description provided for @botsGoalConstraints.
+  ///
+  /// In zh, this message translates to:
+  /// **'规则'**
+  String get botsGoalConstraints;
+
+  /// No description provided for @botsGoalSummary.
+  ///
+  /// In zh, this message translates to:
+  /// **'结果'**
+  String get botsGoalSummary;
+
+  /// No description provided for @botsGoalEvidence.
+  ///
+  /// In zh, this message translates to:
+  /// **'证据'**
+  String get botsGoalEvidence;
+
+  /// No description provided for @botsGoalReason.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止原因'**
+  String get botsGoalReason;
+
+  /// No description provided for @botsGoalCurrent.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前阶段'**
+  String get botsGoalCurrent;
+
+  /// No description provided for @botsGoalReworks.
+  ///
+  /// In zh, this message translates to:
+  /// **'返工 {count} 次'**
+  String botsGoalReworks(int count);
+
+  /// No description provided for @botsGoalFeedback.
+  ///
+  /// In zh, this message translates to:
+  /// **'退回意见：{feedback}'**
+  String botsGoalFeedback(String feedback);
+
+  /// No description provided for @botsGoalStagePending.
+  ///
+  /// In zh, this message translates to:
+  /// **'待开始'**
+  String get botsGoalStagePending;
+
+  /// No description provided for @botsGoalStageActive.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get botsGoalStageActive;
+
+  /// No description provided for @botsGoalStagePassed.
+  ///
+  /// In zh, this message translates to:
+  /// **'已完成'**
+  String get botsGoalStagePassed;
+
+  /// No description provided for @botsGoalStageUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'未知状态'**
+  String get botsGoalStageUnknown;
+
+  /// No description provided for @botsGoalTaskPending.
+  ///
+  /// In zh, this message translates to:
+  /// **'未开始'**
+  String get botsGoalTaskPending;
+
+  /// No description provided for @botsGoalTaskWorking.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get botsGoalTaskWorking;
+
+  /// No description provided for @botsGoalTaskReported.
+  ///
+  /// In zh, this message translates to:
+  /// **'已汇报'**
+  String get botsGoalTaskReported;
+
+  /// No description provided for @botsGoalTaskDone.
+  ///
+  /// In zh, this message translates to:
+  /// **'已完成'**
+  String get botsGoalTaskDone;
+
+  /// No description provided for @botsGoalTaskUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'未知状态'**
+  String get botsGoalTaskUnknown;
+
+  /// No description provided for @botsGoalStatusDrafting.
+  ///
+  /// In zh, this message translates to:
+  /// **'草拟中'**
+  String get botsGoalStatusDrafting;
+
+  /// No description provided for @botsGoalStatusActive.
+  ///
+  /// In zh, this message translates to:
+  /// **'进行中'**
+  String get botsGoalStatusActive;
+
+  /// No description provided for @botsGoalStatusPaused.
+  ///
+  /// In zh, this message translates to:
+  /// **'已暂停'**
+  String get botsGoalStatusPaused;
+
+  /// No description provided for @botsGoalStatusComplete.
+  ///
+  /// In zh, this message translates to:
+  /// **'已完成'**
+  String get botsGoalStatusComplete;
+
+  /// No description provided for @botsGoalStatusStopped.
+  ///
+  /// In zh, this message translates to:
+  /// **'已停止'**
+  String get botsGoalStatusStopped;
+
+  /// No description provided for @botsGoalStatusUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'未知状态'**
+  String get botsGoalStatusUnknown;
 
   /// No description provided for @brandXiaomi.
   ///
@@ -34501,6 +35125,438 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'语音模型下载失败，打开 App 重试'**
   String get voiceModelNoticeFailed;
+
+  /// No description provided for @vmodeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音朗读'**
+  String get vmodeTitle;
+
+  /// No description provided for @vmodeNotServed.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个主机没有安装语音模式插件'**
+  String get vmodeNotServed;
+
+  /// No description provided for @vmodeNotEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音模式插件已关闭'**
+  String get vmodeNotEnabled;
+
+  /// No description provided for @vmodeEnabling.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在启用…'**
+  String get vmodeEnabling;
+
+  /// No description provided for @vmodeEnable.
+  ///
+  /// In zh, this message translates to:
+  /// **'启用语音模式'**
+  String get vmodeEnable;
+
+  /// No description provided for @vmodeOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音关闭'**
+  String get vmodeOff;
+
+  /// No description provided for @vmodeListening.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在听'**
+  String get vmodeListening;
+
+  /// No description provided for @vmodeThinking.
+  ///
+  /// In zh, this message translates to:
+  /// **'思考中'**
+  String get vmodeThinking;
+
+  /// No description provided for @vmodeSpeaking.
+  ///
+  /// In zh, this message translates to:
+  /// **'朗读中'**
+  String get vmodeSpeaking;
+
+  /// No description provided for @vmodeBusy.
+  ///
+  /// In zh, this message translates to:
+  /// **'处理中'**
+  String get vmodeBusy;
+
+  /// No description provided for @vmodeHeldByOther.
+  ///
+  /// In zh, this message translates to:
+  /// **'另一个对话在用麦克风'**
+  String get vmodeHeldByOther;
+
+  /// No description provided for @vmodeDegraded.
+  ///
+  /// In zh, this message translates to:
+  /// **'推送已断开，正在用轮询兜底'**
+  String get vmodeDegraded;
+
+  /// No description provided for @vmodeReconnecting.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在重连语音推送'**
+  String get vmodeReconnecting;
+
+  /// No description provided for @vmodeStartListening.
+  ///
+  /// In zh, this message translates to:
+  /// **'开始说话'**
+  String get vmodeStartListening;
+
+  /// No description provided for @vmodeStopListening.
+  ///
+  /// In zh, this message translates to:
+  /// **'停止'**
+  String get vmodeStopListening;
+
+  /// No description provided for @vmodeInterrupt.
+  ///
+  /// In zh, this message translates to:
+  /// **'打断朗读'**
+  String get vmodeInterrupt;
+
+  /// No description provided for @vmodeReadAloud.
+  ///
+  /// In zh, this message translates to:
+  /// **'朗读'**
+  String get vmodeReadAloud;
+
+  /// No description provided for @vmodeReadAloudVoice.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅语音回合'**
+  String get vmodeReadAloudVoice;
+
+  /// No description provided for @vmodeReadAloudAlways.
+  ///
+  /// In zh, this message translates to:
+  /// **'每条回复'**
+  String get vmodeReadAloudAlways;
+
+  /// No description provided for @vmodeReadAloudOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'不朗读'**
+  String get vmodeReadAloudOff;
+
+  /// No description provided for @vmodeCaptions.
+  ///
+  /// In zh, this message translates to:
+  /// **'字幕'**
+  String get vmodeCaptions;
+
+  /// No description provided for @vmodeStatusBar.
+  ///
+  /// In zh, this message translates to:
+  /// **'状态条'**
+  String get vmodeStatusBar;
+
+  /// No description provided for @vmodeShowCaptions.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示字幕'**
+  String get vmodeShowCaptions;
+
+  /// No description provided for @vmodeShowStatusBar.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示状态条'**
+  String get vmodeShowStatusBar;
+
+  /// No description provided for @vmodeTrigger.
+  ///
+  /// In zh, this message translates to:
+  /// **'触发方式'**
+  String get vmodeTrigger;
+
+  /// No description provided for @vmodeTriggerToggle.
+  ///
+  /// In zh, this message translates to:
+  /// **'按一下开始，再按一下结束'**
+  String get vmodeTriggerToggle;
+
+  /// No description provided for @vmodeTriggerHold.
+  ///
+  /// In zh, this message translates to:
+  /// **'按住说话'**
+  String get vmodeTriggerHold;
+
+  /// No description provided for @vmodeTriggerOnce.
+  ///
+  /// In zh, this message translates to:
+  /// **'只说一句'**
+  String get vmodeTriggerOnce;
+
+  /// No description provided for @vmodeSettings.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音设置'**
+  String get vmodeSettings;
+
+  /// No description provided for @vmodeSettingsManaged.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置由 dsh 托管，请在设置面板修改'**
+  String get vmodeSettingsManaged;
+
+  /// No description provided for @vmodeSettingsRejected.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件没有接受这组设置'**
+  String get vmodeSettingsRejected;
+
+  /// No description provided for @vmodeSettingsSaved.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置已保存'**
+  String get vmodeSettingsSaved;
+
+  /// No description provided for @vmodeSettingsFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置没有保存成功'**
+  String get vmodeSettingsFailed;
+
+  /// No description provided for @vmodeEngine.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音引擎'**
+  String get vmodeEngine;
+
+  /// No description provided for @vmodeEngineEdge.
+  ///
+  /// In zh, this message translates to:
+  /// **'Edge 云端'**
+  String get vmodeEngineEdge;
+
+  /// No description provided for @vmodeEngineKokoro.
+  ///
+  /// In zh, this message translates to:
+  /// **'Kokoro 本地'**
+  String get vmodeEngineKokoro;
+
+  /// No description provided for @vmodeEngineVits.
+  ///
+  /// In zh, this message translates to:
+  /// **'VITS 本地'**
+  String get vmodeEngineVits;
+
+  /// No description provided for @vmodeVoice.
+  ///
+  /// In zh, this message translates to:
+  /// **'音色'**
+  String get vmodeVoice;
+
+  /// No description provided for @vmodeRate.
+  ///
+  /// In zh, this message translates to:
+  /// **'语速'**
+  String get vmodeRate;
+
+  /// No description provided for @vmodeRateValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{rate}×'**
+  String vmodeRateValue(String rate);
+
+  /// No description provided for @vmodeBargeIn.
+  ///
+  /// In zh, this message translates to:
+  /// **'打断方式'**
+  String get vmodeBargeIn;
+
+  /// No description provided for @vmodeBargeInAuto.
+  ///
+  /// In zh, this message translates to:
+  /// **'自动'**
+  String get vmodeBargeInAuto;
+
+  /// No description provided for @vmodeBargeInManual.
+  ///
+  /// In zh, this message translates to:
+  /// **'手动'**
+  String get vmodeBargeInManual;
+
+  /// No description provided for @vmodeBargeInDetect.
+  ///
+  /// In zh, this message translates to:
+  /// **'识别到人声'**
+  String get vmodeBargeInDetect;
+
+  /// No description provided for @vmodeSilence.
+  ///
+  /// In zh, this message translates to:
+  /// **'停顿判定'**
+  String get vmodeSilence;
+
+  /// No description provided for @vmodeSilenceValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{ms} 毫秒'**
+  String vmodeSilenceValue(int ms);
+
+  /// No description provided for @vmodeIdleTimeout.
+  ///
+  /// In zh, this message translates to:
+  /// **'空闲挂断'**
+  String get vmodeIdleTimeout;
+
+  /// No description provided for @vmodeIdleTimeoutValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{minutes} 分钟'**
+  String vmodeIdleTimeoutValue(int minutes);
+
+  /// No description provided for @vmodeModelsReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型就绪'**
+  String get vmodeModelsReady;
+
+  /// No description provided for @vmodeModelsNotReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型未就绪'**
+  String get vmodeModelsNotReady;
+
+  /// No description provided for @vmodeModelsAsr.
+  ///
+  /// In zh, this message translates to:
+  /// **'识别模型'**
+  String get vmodeModelsAsr;
+
+  /// No description provided for @vmodeModelsTts.
+  ///
+  /// In zh, this message translates to:
+  /// **'合成模型'**
+  String get vmodeModelsTts;
+
+  /// No description provided for @vmodeModelsRetry.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试加载模型'**
+  String get vmodeModelsRetry;
+
+  /// No description provided for @vmodeModelsDownloading.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载模型：{file} {percent}%'**
+  String vmodeModelsDownloading(String file, int percent);
+
+  /// No description provided for @vmodeEngineStruggling.
+  ///
+  /// In zh, this message translates to:
+  /// **'合成连续失败，可能连不上云端'**
+  String get vmodeEngineStruggling;
+
+  /// No description provided for @vmodePreview.
+  ///
+  /// In zh, this message translates to:
+  /// **'试听'**
+  String get vmodePreview;
+
+  /// No description provided for @vmodePreviewFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'试听失败'**
+  String get vmodePreviewFailed;
+
+  /// No description provided for @vmodePreviewNetwork.
+  ///
+  /// In zh, this message translates to:
+  /// **'试听连不上云端'**
+  String get vmodePreviewNetwork;
+
+  /// No description provided for @vmodePreviewEngine.
+  ///
+  /// In zh, this message translates to:
+  /// **'合成引擎报错'**
+  String get vmodePreviewEngine;
+
+  /// No description provided for @vmodePreviewText.
+  ///
+  /// In zh, this message translates to:
+  /// **'这段文本合成不了'**
+  String get vmodePreviewText;
+
+  /// No description provided for @vmodePreviewUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'试听失败，原因不明'**
+  String get vmodePreviewUnknown;
+
+  /// No description provided for @vmodeVoiceListFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'读不到音色列表'**
+  String get vmodeVoiceListFailed;
+
+  /// No description provided for @vmodeDisabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音已被这轮设置关闭'**
+  String get vmodeDisabled;
+
+  /// No description provided for @vmodeUnknownSession.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个对话已经不存在'**
+  String get vmodeUnknownSession;
+
+  /// No description provided for @vmodeLatencyFirstToken.
+  ///
+  /// In zh, this message translates to:
+  /// **'首字'**
+  String get vmodeLatencyFirstToken;
+
+  /// No description provided for @vmodeLatencyFirstSentence.
+  ///
+  /// In zh, this message translates to:
+  /// **'首句'**
+  String get vmodeLatencyFirstSentence;
+
+  /// No description provided for @vmodeLatencyValue.
+  ///
+  /// In zh, this message translates to:
+  /// **'{stage} {ms} 毫秒'**
+  String vmodeLatencyValue(String stage, int ms);
+
+  /// No description provided for @vmodeToolRunning.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在跑 {name}'**
+  String vmodeToolRunning(String name);
+
+  /// No description provided for @vmodeAsrFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'识别失败'**
+  String get vmodeAsrFailed;
+
+  /// No description provided for @vmodeTtsSkipped.
+  ///
+  /// In zh, this message translates to:
+  /// **'跳过朗读：{text}'**
+  String vmodeTtsSkipped(String text);
+
+  /// No description provided for @vmodeCatalogTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音朗读'**
+  String get vmodeCatalogTitle;
+
+  /// No description provided for @vmodeCatalogSummary.
+  ///
+  /// In zh, this message translates to:
+  /// **'开关朗读与字幕，切换触发方式、引擎与音色，重载语音模型。'**
+  String get vmodeCatalogSummary;
 
   /// No description provided for @voiceScribeReadFailed.
   ///

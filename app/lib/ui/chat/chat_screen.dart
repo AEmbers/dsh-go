@@ -41,6 +41,7 @@ import '../../state/session_modes.dart';
 import '../../state/sessions_state.dart';
 import '../../state/settings_state.dart';
 import '../../state/usage_state.dart';
+import '../../state/voice_mode_state.dart';
 import '../../state/voice_state.dart';
 import '../../state/voice_model_state.dart';
 import '../../state/voice_settings.dart';
@@ -59,6 +60,7 @@ import '../onboarding/local_install.dart';
 import '../pets/pet_perch.dart';
 import '../pets/pet_stage.dart';
 import '../plugins/native/composer_strip.dart' show ComposerStripSlot;
+import '../plugins/voice_mode_page.dart' show VoiceModeStrip;
 import '../plugins/native/native_composer_bar.dart';
 import '../plugins/native/native_taps.dart' show NativeComposerHost, NativeComposerScope, runNativeAction;
 import '../safe_mode/engine_failure_card.dart';
@@ -122,6 +124,9 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObserver {
   void Function()? _endInteraction;
   bool _routeCurrent = true;
+  /// Whether the app is in front. A backgrounded app is reading nothing, so
+  /// the Host is told nothing is on screen rather than an old session.
+  bool _appVisible = true;
   ModalRoute<Object?>? _interactionRoute;
 
   @override
@@ -137,6 +142,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       _endInteraction?.call();
       _endInteraction = null;
     }
+    _syncVoiceFocus();
   }
 
   void _scheduleInteraction() {
@@ -159,7 +165,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appVisible = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) _scheduleInteraction();
+    _syncVoiceFocus();
+  }
+
+  /// Tells the Host which session this tab has on screen: `dsh-voice-mode`
+  /// reads 「每条回复」 (`readAloud: always`) for the session it calls focused,
+  /// and records turn/step and honours `/cancel` only for that one too. A page
+  /// that is not in front, or an app in the background, has none — `null`
+  /// clears it. The controller sends its own tab id along, which is what lets
+  /// the Host clear the focus it actually holds.
+  void _syncVoiceFocus() {
+    if (!mounted) return;
+    final sessionId = _appVisible && _routeCurrent ? ref.read(currentSessionProvider) : null;
+    unawaited(ref.read(voiceModeProvider.notifier).syncFocus(sessionId));
   }
 
   final _input = MentionTextController();
@@ -254,6 +274,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addObserver(this);
     _scheduleInteraction();
     ref.listenManual(currentSessionProvider, (_, _) => _scheduleInteraction());
+    // `voiceModeProvider` is autoDispose and its `build` mints a fresh tab id
+    // each time. Without a listener of this page's own, a read that outlives
+    // the frame that made it builds a controller and drops it again, and the
+    // Host would hold a connection per read (it refuses after eight).
+    ref.listenManual(voiceModeProvider, (_, _) {});
+    ref.listenManual(currentSessionProvider, (_, _) => _syncVoiceFocus());
+    _appVisible = switch (WidgetsBinding.instance.lifecycleState) {
+      null || AppLifecycleState.resumed => true,
+      _ => false,
+    };
     _voice = VoiceInputController(
       input: _input,
       bridge: ref.read(voiceBridgeProvider),
@@ -292,6 +322,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
           _syncWait = null;
         });
       }
+      // A host that has just arrived knows no focus of ours, and the controller
+      // announced itself under a tab id of its own: the tab introduces itself
+      // again, or the new host keeps reading only what a microphone opened.
+      _syncVoiceFocus();
     });
     // Saved drafts arrive a moment after launch.
     ref.listenManual(draftStoreProvider.select((s) => s.loaded), (_, loaded) {
@@ -302,6 +336,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     // Opening the chat counts as "open" for the balance (throttled to 1/min).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(balanceProvider.notifier).refresh();
+      _syncVoiceFocus();
       // Asked for from another page before this one was built.
       if (mounted && ref.read(repairDraftProvider) != null) _takeRepairDraft();
       if (mounted && ref.read(composerInsertProvider) != null) {
@@ -1927,6 +1962,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                         ],
                                         // It gives the activity strip its place while a reply generates.
                                         if (!readOnly) ComposerStripSlot(sessionId: sessionId, visible: !running),
+                                        // The voice-mode control takes no height while
+                                        // nothing is listening or reading aloud, and
+                                        // brings its own margins when it does.
+                                        if (sessionId != null) VoiceModeStrip(sessionId: sessionId),
                                       ],
                                       accessory: pillsBesideStrip
                                           ? _stripRisk(sessionId, autoApprove: chat?.autoApprove ?? false)

@@ -253,7 +253,15 @@ void main() {
     platform = _Platform(root);
     engine = _Engine();
   });
-  tearDown(() => root.delete(recursive: true));
+  tearDown(() async {
+    // These are `static` knobs on the controller, so they outlive the file:
+    // a later test file in the same shard would inherit this one's 5ms pace.
+    // Leaving them at their declared defaults keeps the suites order-free.
+    VoiceModelController.pollEvery = const Duration(milliseconds: 700);
+    VoiceModelController.stall = const Duration(seconds: 60);
+    VoiceModelController.noticeEvery = const Duration(milliseconds: 500);
+    await root.delete(recursive: true);
+  });
 
   ProviderContainer container({DshClient? Function()? client, bool connected = true}) {
     final c = ProviderContainer(

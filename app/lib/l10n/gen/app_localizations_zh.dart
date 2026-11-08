@@ -1555,6 +1555,253 @@ class L10nZh extends L10n {
   String get activityToolListSeparator => '、';
 
   @override
+  String get ateamTitle => '团队面板';
+
+  @override
+  String get ateamNotServed => '这个主机没有安装 Agent Teams 插件';
+
+  @override
+  String get ateamNotEnabled => 'Agent Teams 插件已关闭';
+
+  @override
+  String get ateamEnabling => '正在启用…';
+
+  @override
+  String get ateamEnable => '启用 Agent Teams';
+
+  @override
+  String get ateamNoTeams => '还没有团队';
+
+  @override
+  String get ateamNoTeamsMessage => '在这台主机上开一个团队对话后，成员和任务会出现在这里。';
+
+  @override
+  String get ateamReadFailed => '读取团队状态失败';
+
+  @override
+  String get ateamPhaseStaged => '等待批准';
+
+  @override
+  String get ateamPhaseRunning => '运行中';
+
+  @override
+  String get ateamPhaseArchived => '已归档';
+
+  @override
+  String get ateamPlanAwaitingReview => '计划等待你审阅';
+
+  @override
+  String get ateamPlanAwaitingFeedback => '计划等待你的意见';
+
+  @override
+  String get ateamApprove => '批准并启动';
+
+  @override
+  String get ateamContinue => '继续讨论';
+
+  @override
+  String get ateamDiscard => '丢弃计划';
+
+  @override
+  String get ateamHalt => '暂停团队';
+
+  @override
+  String get ateamHalted => '团队已暂停';
+
+  @override
+  String get ateamLoopHalted => '质量回路已停';
+
+  @override
+  String get ateamLoopDeliverable => '质量回路：可交付';
+
+  @override
+  String get ateamLoopEscalated => '质量回路已升级';
+
+  @override
+  String get ateamLoopRunning => '质量回路运行中';
+
+  @override
+  String get ateamLoopBlocked => '质量回路受阻';
+
+  @override
+  String get ateamDeliveryReady => '可以交付';
+
+  @override
+  String get ateamDeliveryBlocked => '尚不可交付';
+
+  @override
+  String get ateamBlockers => '阻断项';
+
+  @override
+  String get ateamWarnings => '提醒';
+
+  @override
+  String get ateamCaptain => '队长';
+
+  @override
+  String get ateamCaptainInbox => '队长信箱';
+
+  @override
+  String get ateamCaptainInboxEmpty => '队长信箱是空的';
+
+  @override
+  String get ateamMembers => '成员';
+
+  @override
+  String get ateamTasks => '任务';
+
+  @override
+  String get ateamOverview => '概览';
+
+  @override
+  String get ateamWorking => '工作中';
+
+  @override
+  String get ateamIdle => '空闲';
+
+  @override
+  String get ateamUnknown => '状态未知';
+
+  @override
+  String get ateamRemoved => '已离开';
+
+  @override
+  String ateamMembersWorking(int count) {
+    return '$count 位成员在跑';
+  }
+
+  @override
+  String ateamMessagesCount(int count) {
+    return '$count 条信箱消息';
+  }
+
+  @override
+  String ateamProgress(int done, int total) {
+    return '$done/$total';
+  }
+
+  @override
+  String ateamUnread(int count) {
+    return '$count 条未读';
+  }
+
+  @override
+  String ateamRound(int round) {
+    return '第 $round 轮';
+  }
+
+  @override
+  String ateamVerdict(String verdict) {
+    return '判定：$verdict';
+  }
+
+  @override
+  String get ateamVerdictStale => '判定已过期';
+
+  @override
+  String ateamTaskDependencies(int count) {
+    return '依赖 $count 个任务';
+  }
+
+  @override
+  String ateamLane(int depth) {
+    return '第 $depth 层';
+  }
+
+  @override
+  String get ateamTaskStateCompleted => '已完成';
+
+  @override
+  String get ateamTaskStateFailed => '失败';
+
+  @override
+  String get ateamTaskStateCancelled => '已取消';
+
+  @override
+  String get ateamTaskStateRunning => '进行中';
+
+  @override
+  String get ateamTaskStateClaimed => '已认领';
+
+  @override
+  String get ateamTaskStateBlocked => '等待依赖';
+
+  @override
+  String get ateamTaskStateOpen => '可开始';
+
+  @override
+  String get ateamQualityKind => '质量门禁';
+
+  @override
+  String get ateamDescription => '说明';
+
+  @override
+  String get ateamAssignee => '执行者';
+
+  @override
+  String get ateamCurrentTask => '当前任务';
+
+  @override
+  String get ateamModelRoute => '模型';
+
+  @override
+  String get ateamEffort => '思考深度';
+
+  @override
+  String get ateamExecutionPrompt => '执行提示';
+
+  @override
+  String get ateamOpenChat => '打开对话';
+
+  @override
+  String get ateamErrorUnavailable => '这个主机没有团队接口';
+
+  @override
+  String get ateamErrorCaptainDetached => '队长对话没挂载，先打开队长对话';
+
+  @override
+  String get ateamErrorTeamMissing => '这个团队已经不属于该队长';
+
+  @override
+  String get ateamErrorRejected => '插件拒绝了这次操作';
+
+  @override
+  String get ateamErrorFailed => '操作失败';
+
+  @override
+  String get ateamUpdatedJustNow => '刚刚更新';
+
+  @override
+  String get ateamHaltConfirmTitle => '暂停整个团队？';
+
+  @override
+  String get ateamHaltConfirmBody => '所有成员会停止当前回合，团队本身留在原处。';
+
+  @override
+  String get ateamDiscardConfirmTitle => '丢弃这个计划？';
+
+  @override
+  String get ateamDiscardConfirmBody => '计划会被归档，不能再批准。';
+
+  @override
+  String get ateamHaltedNote => '团队暂停';
+
+  @override
+  String get ateamStateNote => '团队状态';
+
+  @override
+  String get ateamLoop => '质量回路';
+
+  @override
+  String get ateamCatalogTitle => '团队面板';
+
+  @override
+  String get ateamCatalogSummary => '批准待审的计划，看成员、任务依赖与队长信箱，随时暂停团队。';
+
+  @override
+  String get ateamCardOpenPanel => '打开团队面板';
+
+  @override
   String get botsFolderGone => '这个文件夹已经不在了';
 
   @override
@@ -2865,6 +3112,95 @@ class L10nZh extends L10n {
 
   @override
   String get botsCreationConnectionChanged => '连接已变化，请重新打开创建页面后再操作。';
+
+  @override
+  String get botsGoalBoard => '群目标';
+
+  @override
+  String botsGoalStageOf(int current, int count) {
+    return '阶段 $current/$count';
+  }
+
+  @override
+  String botsGoalPassedCount(int passed) {
+    return '已过 $passed 个阶段';
+  }
+
+  @override
+  String get botsGoalObjective => '目标';
+
+  @override
+  String get botsGoalAcceptance => '完成标准';
+
+  @override
+  String get botsGoalConstraints => '规则';
+
+  @override
+  String get botsGoalSummary => '结果';
+
+  @override
+  String get botsGoalEvidence => '证据';
+
+  @override
+  String get botsGoalReason => '停止原因';
+
+  @override
+  String get botsGoalCurrent => '当前阶段';
+
+  @override
+  String botsGoalReworks(int count) {
+    return '返工 $count 次';
+  }
+
+  @override
+  String botsGoalFeedback(String feedback) {
+    return '退回意见：$feedback';
+  }
+
+  @override
+  String get botsGoalStagePending => '待开始';
+
+  @override
+  String get botsGoalStageActive => '进行中';
+
+  @override
+  String get botsGoalStagePassed => '已完成';
+
+  @override
+  String get botsGoalStageUnknown => '未知状态';
+
+  @override
+  String get botsGoalTaskPending => '未开始';
+
+  @override
+  String get botsGoalTaskWorking => '进行中';
+
+  @override
+  String get botsGoalTaskReported => '已汇报';
+
+  @override
+  String get botsGoalTaskDone => '已完成';
+
+  @override
+  String get botsGoalTaskUnknown => '未知状态';
+
+  @override
+  String get botsGoalStatusDrafting => '草拟中';
+
+  @override
+  String get botsGoalStatusActive => '进行中';
+
+  @override
+  String get botsGoalStatusPaused => '已暂停';
+
+  @override
+  String get botsGoalStatusComplete => '已完成';
+
+  @override
+  String get botsGoalStatusStopped => '已停止';
+
+  @override
+  String get botsGoalStatusUnknown => '未知状态';
 
   @override
   String get brandXiaomi => '小米 / Redmi';
@@ -18975,6 +19311,236 @@ class L10nZh extends L10n {
 
   @override
   String get voiceModelNoticeFailed => '语音模型下载失败，打开 App 重试';
+
+  @override
+  String get vmodeTitle => '语音朗读';
+
+  @override
+  String get vmodeNotServed => '这个主机没有安装语音模式插件';
+
+  @override
+  String get vmodeNotEnabled => '语音模式插件已关闭';
+
+  @override
+  String get vmodeEnabling => '正在启用…';
+
+  @override
+  String get vmodeEnable => '启用语音模式';
+
+  @override
+  String get vmodeOff => '语音关闭';
+
+  @override
+  String get vmodeListening => '正在听';
+
+  @override
+  String get vmodeThinking => '思考中';
+
+  @override
+  String get vmodeSpeaking => '朗读中';
+
+  @override
+  String get vmodeBusy => '处理中';
+
+  @override
+  String get vmodeHeldByOther => '另一个对话在用麦克风';
+
+  @override
+  String get vmodeDegraded => '推送已断开，正在用轮询兜底';
+
+  @override
+  String get vmodeReconnecting => '正在重连语音推送';
+
+  @override
+  String get vmodeStartListening => '开始说话';
+
+  @override
+  String get vmodeStopListening => '停止';
+
+  @override
+  String get vmodeInterrupt => '打断朗读';
+
+  @override
+  String get vmodeReadAloud => '朗读';
+
+  @override
+  String get vmodeReadAloudVoice => '仅语音回合';
+
+  @override
+  String get vmodeReadAloudAlways => '每条回复';
+
+  @override
+  String get vmodeReadAloudOff => '不朗读';
+
+  @override
+  String get vmodeCaptions => '字幕';
+
+  @override
+  String get vmodeStatusBar => '状态条';
+
+  @override
+  String get vmodeShowCaptions => '显示字幕';
+
+  @override
+  String get vmodeShowStatusBar => '显示状态条';
+
+  @override
+  String get vmodeTrigger => '触发方式';
+
+  @override
+  String get vmodeTriggerToggle => '按一下开始，再按一下结束';
+
+  @override
+  String get vmodeTriggerHold => '按住说话';
+
+  @override
+  String get vmodeTriggerOnce => '只说一句';
+
+  @override
+  String get vmodeSettings => '语音设置';
+
+  @override
+  String get vmodeSettingsManaged => '设置由 dsh 托管，请在设置面板修改';
+
+  @override
+  String get vmodeSettingsRejected => '插件没有接受这组设置';
+
+  @override
+  String get vmodeSettingsSaved => '设置已保存';
+
+  @override
+  String get vmodeSettingsFailed => '设置没有保存成功';
+
+  @override
+  String get vmodeEngine => '语音引擎';
+
+  @override
+  String get vmodeEngineEdge => 'Edge 云端';
+
+  @override
+  String get vmodeEngineKokoro => 'Kokoro 本地';
+
+  @override
+  String get vmodeEngineVits => 'VITS 本地';
+
+  @override
+  String get vmodeVoice => '音色';
+
+  @override
+  String get vmodeRate => '语速';
+
+  @override
+  String vmodeRateValue(String rate) {
+    return '$rate×';
+  }
+
+  @override
+  String get vmodeBargeIn => '打断方式';
+
+  @override
+  String get vmodeBargeInAuto => '自动';
+
+  @override
+  String get vmodeBargeInManual => '手动';
+
+  @override
+  String get vmodeBargeInDetect => '识别到人声';
+
+  @override
+  String get vmodeSilence => '停顿判定';
+
+  @override
+  String vmodeSilenceValue(int ms) {
+    return '$ms 毫秒';
+  }
+
+  @override
+  String get vmodeIdleTimeout => '空闲挂断';
+
+  @override
+  String vmodeIdleTimeoutValue(int minutes) {
+    return '$minutes 分钟';
+  }
+
+  @override
+  String get vmodeModelsReady => '模型就绪';
+
+  @override
+  String get vmodeModelsNotReady => '模型未就绪';
+
+  @override
+  String get vmodeModelsAsr => '识别模型';
+
+  @override
+  String get vmodeModelsTts => '合成模型';
+
+  @override
+  String get vmodeModelsRetry => '重试加载模型';
+
+  @override
+  String vmodeModelsDownloading(String file, int percent) {
+    return '下载模型：$file $percent%';
+  }
+
+  @override
+  String get vmodeEngineStruggling => '合成连续失败，可能连不上云端';
+
+  @override
+  String get vmodePreview => '试听';
+
+  @override
+  String get vmodePreviewFailed => '试听失败';
+
+  @override
+  String get vmodePreviewNetwork => '试听连不上云端';
+
+  @override
+  String get vmodePreviewEngine => '合成引擎报错';
+
+  @override
+  String get vmodePreviewText => '这段文本合成不了';
+
+  @override
+  String get vmodePreviewUnknown => '试听失败，原因不明';
+
+  @override
+  String get vmodeVoiceListFailed => '读不到音色列表';
+
+  @override
+  String get vmodeDisabled => '语音已被这轮设置关闭';
+
+  @override
+  String get vmodeUnknownSession => '这个对话已经不存在';
+
+  @override
+  String get vmodeLatencyFirstToken => '首字';
+
+  @override
+  String get vmodeLatencyFirstSentence => '首句';
+
+  @override
+  String vmodeLatencyValue(String stage, int ms) {
+    return '$stage $ms 毫秒';
+  }
+
+  @override
+  String vmodeToolRunning(String name) {
+    return '正在跑 $name';
+  }
+
+  @override
+  String get vmodeAsrFailed => '识别失败';
+
+  @override
+  String vmodeTtsSkipped(String text) {
+    return '跳过朗读：$text';
+  }
+
+  @override
+  String get vmodeCatalogTitle => '语音朗读';
+
+  @override
+  String get vmodeCatalogSummary => '开关朗读与字幕，切换触发方式、引擎与音色，重载语音模型。';
 
   @override
   String get voiceScribeReadFailed => '没能读取语音设置，请重试。';
