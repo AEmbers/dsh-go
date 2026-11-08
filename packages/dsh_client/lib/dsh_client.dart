@@ -13,6 +13,7 @@
 /// * [ChatTranscript] — optional reducer from events to chat items.
 library;
 
+export 'src/agent_teams_api.dart';
 export 'src/agents_api.dart';
 export 'src/carrier.dart';
 export 'src/client_inventory_api.dart';
@@ -50,6 +51,7 @@ export 'src/speech_api.dart';
 export 'src/subscriptions_api.dart';
 export 'src/terminal_api.dart';
 export 'src/transcript.dart';
+export 'src/voice_mode_api.dart';
 export 'src/workspace_api.dart';
 export 'src/workspace_upload.dart';
 export 'src/workspaces_api.dart';

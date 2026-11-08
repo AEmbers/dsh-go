@@ -1,0 +1,138 @@
+{
+  "ateamTitle": "团队面板",
+  "ateamNotServed": "这个主机没有安装 Agent Teams 插件",
+  "ateamNotEnabled": "Agent Teams 插件已关闭",
+  "ateamEnabling": "正在启用…",
+  "ateamEnable": "启用 Agent Teams",
+  "ateamNoTeams": "还没有团队",
+  "ateamNoTeamsMessage": "在这台主机上开一个团队对话后，成员和任务会出现在这里。",
+  "ateamReadFailed": "读取团队状态失败",
+  "ateamPhaseStaged": "等待批准",
+  "ateamPhaseRunning": "运行中",
+  "ateamPhaseArchived": "已归档",
+  "ateamPlanAwaitingReview": "计划等待你审阅",
+  "ateamPlanAwaitingFeedback": "计划等待你的意见",
+  "ateamApprove": "批准并启动",
+  "ateamContinue": "继续讨论",
+  "ateamDiscard": "丢弃计划",
+  "ateamHalt": "暂停团队",
+  "ateamHalted": "团队已暂停",
+  "ateamLoopHalted": "质量回路已停",
+  "ateamLoopDeliverable": "质量回路：可交付",
+  "ateamLoopEscalated": "质量回路已升级",
+  "ateamLoopRunning": "质量回路运行中",
+  "ateamLoopBlocked": "质量回路受阻",
+  "ateamDeliveryReady": "可以交付",
+  "ateamDeliveryBlocked": "尚不可交付",
+  "ateamBlockers": "阻断项",
+  "ateamWarnings": "提醒",
+  "ateamCaptain": "队长",
+  "ateamCaptainInbox": "队长信箱",
+  "ateamCaptainInboxEmpty": "队长信箱是空的",
+  "ateamMembers": "成员",
+  "ateamTasks": "任务",
+  "ateamOverview": "概览",
+  "ateamWorking": "工作中",
+  "ateamIdle": "空闲",
+  "ateamUnknown": "状态未知",
+  "ateamRemoved": "已离开",
+  "ateamMembersWorking": "{count} 位成员在跑",
+  "@ateamMembersWorking": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamMessagesCount": "{count} 条信箱消息",
+  "@ateamMessagesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamProgress": "{done}/{total}",
+  "@ateamProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamUnread": "{count} 条未读",
+  "@ateamUnread": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamRound": "第 {round} 轮",
+  "@ateamRound": {
+    "placeholders": {
+      "round": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamVerdict": "判定：{verdict}",
+  "@ateamVerdict": {
+    "placeholders": {
+      "verdict": {
+        "type": "String"
+      }
+    }
+  },
+  "ateamVerdictStale": "判定已过期",
+  "ateamTaskDependencies": "依赖 {count} 个任务",
+  "@ateamTaskDependencies": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamLane": "第 {depth} 层",
+  "@ateamLane": {
+    "placeholders": {
+      "depth": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamTaskStateCompleted": "已完成",
+  "ateamTaskStateFailed": "失败",
+  "ateamTaskStateCancelled": "已取消",
+  "ateamTaskStateRunning": "进行中",
+  "ateamTaskStateClaimed": "已认领",
+  "ateamTaskStateBlocked": "等待依赖",
+  "ateamTaskStateOpen": "可开始",
+  "ateamQualityKind": "质量门禁",
+  "ateamDescription": "说明",
+  "ateamAssignee": "执行者",
+  "ateamCurrentTask": "当前任务",
+  "ateamModelRoute": "模型",
+  "ateamEffort": "思考深度",
+  "ateamExecutionPrompt": "执行提示",
+  "ateamOpenChat": "打开对话",
+  "ateamErrorUnavailable": "这个主机没有团队接口",
+  "ateamErrorCaptainDetached": "队长对话没挂载，先打开队长对话",
+  "ateamErrorTeamMissing": "这个团队已经不属于该队长",
+  "ateamErrorRejected": "插件拒绝了这次操作",
+  "ateamErrorFailed": "操作失败",
+  "ateamUpdatedJustNow": "刚刚更新",
+  "ateamHaltConfirmTitle": "暂停整个团队？",
+  "ateamHaltConfirmBody": "所有成员会停止当前回合，团队本身留在原处。",
+  "ateamDiscardConfirmTitle": "丢弃这个计划？",
+  "ateamDiscardConfirmBody": "计划会被归档，不能再批准。",
+  "ateamHaltedNote": "团队暂停",
+  "ateamStateNote": "团队状态",
+  "ateamLoop": "质量回路",
+  "ateamCatalogTitle": "团队面板",
+  "ateamCatalogSummary": "批准待审的计划，看成员、任务依赖与队长信箱，随时暂停团队。",
+  "ateamCardOpenPanel": "打开团队面板"
+}

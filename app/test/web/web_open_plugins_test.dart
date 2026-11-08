@@ -12,8 +12,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 String? _node() {
-  for (final dir in (Platform.environment['PATH'] ?? '').split(':')) {
-    if (dir.isNotEmpty && File('$dir/node').existsSync()) return '$dir/node';
+  final sep = Platform.isWindows ? ';' : ':';
+  for (final dir in (Platform.environment['PATH'] ?? '').split(sep)) {
+    if (dir.isEmpty) continue;
+    for (final name in ['node.exe', 'node']) {
+      final candidate = '$dir${Platform.pathSeparator}$name';
+      if (File(candidate).existsSync()) return candidate;
+    }
   }
   return null;
 }
@@ -41,7 +46,7 @@ void main() {
       'test/web/support/plugins_page_harness.mjs',
       'assets/web/dsh_web_open.js',
       jsonEncode(scenario),
-    ]);
+    ], stdoutEncoding: utf8, stderrEncoding: utf8);
     expect(result.exitCode, 0, reason: '${result.stderr}');
     final out = jsonDecode(result.stdout as String) as Map<String, Object?>;
     return (

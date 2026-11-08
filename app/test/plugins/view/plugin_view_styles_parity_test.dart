@@ -8,7 +8,15 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final kit = Directory('../sdk/plugin-kit');
   test('App and SDK agree on v2 diagnostics and 256 quantised colour corrections', () {
-    final process = Process.runSync('node', ['${kit.path}/test/style-parity.mjs']);
+    // Node writes UTF-8; without stdoutEncoding Dart decodes with the system
+    // code page (cp936 on a zh-CN Windows) and every non-ASCII message turns
+    // into mojibake, so the comparison fails on packaging rather than content.
+    final process = Process.runSync(
+      'node',
+      ['${kit.path}/test/style-parity.mjs'],
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
     expect(process.exitCode, 0, reason: '${process.stderr}');
     final expected = jsonDecode(process.stdout as String) as Map;
     final inputs = jsonDecode(File('${kit.path}/test/parity/style-inputs.json').readAsStringSync()) as List;

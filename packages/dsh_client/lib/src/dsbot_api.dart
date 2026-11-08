@@ -449,10 +449,16 @@ class DsBotRoom {
     this.createdAt,
     this.workDir,
     this.parts = const [],
+    this.goal,
   });
 
   factory DsBotRoom.fromJson(Object? json) {
     final map = asMapOrEmpty(json);
+    // The goal travels with the room record itself (`state` → `rooms[]`), so a
+    // host that has `group_goal` sends it without any extra endpoint. A room
+    // page (`room-chat`) carries it too, which is how a group opened before the
+    // newest `state` still draws its board.
+    final goal = asMap(map['goal']);
     return DsBotRoom(
       id: asString(map['id']) ?? '',
       name: asString(map['name']) ?? '',
@@ -470,6 +476,7 @@ class DsBotRoom {
       createdAt: asEpochMs(map['createdAt']),
       workDir: asString(map['workDir']),
       parts: asStringList(map['parts']),
+      goal: goal == null ? null : DsBotRoomGoal.fromJson(goal),
     );
   }
 
@@ -499,6 +506,11 @@ class DsBotRoom {
 
   /// The members' hidden Sessions in this group (and their earlier parts).
   final List<String> parts;
+
+  /// The group's goal, when the host has one for this room. A group without a
+  /// goal and a host from before `group_goal` both read null here; the chat
+  /// tells them apart with [DsBotHello.supports] and `'room-goal'`.
+  final DsBotRoomGoal? goal;
 
   bool get adminFirst => mode != 'everyone';
 }
@@ -948,9 +960,229 @@ class DsBotChatPage {
   final Object? cursor;
 }
 
+/// Where a group's goal stands overall (`ds-bot` `src/host/goals.js`).
+enum DsBotGoalStatus {
+  /// The admin is still aligning the goal with the user; no stages yet.
+  drafting,
+  active,
+  paused,
+  complete,
+  stopped,
+
+  /// A word this client does not know; the board still draws the stages.
+  unknown;
+
+  static DsBotGoalStatus fromWire(Object? wire) => switch (asString(wire)) {
+    'drafting' => drafting,
+    'active' => active,
+    'paused' => paused,
+    'complete' => complete,
+    'stopped' => stopped,
+    _ => unknown,
+  };
+}
+
+/// One stage of a goal's ledger.
+enum DsBotStageStatus {
+  pending,
+  active,
+  passed,
+  unknown;
+
+  static DsBotStageStatus fromWire(Object? wire) => switch (asString(wire)) {
+    'pending' => pending,
+    'active' => active,
+    'passed' => passed,
+    _ => unknown,
+  };
+}
+
+/// One member's task inside a stage. A failed task goes back to [pending].
+enum DsBotTaskStatus {
+  pending,
+  working,
+  reported,
+  done,
+  unknown;
+
+  static DsBotTaskStatus fromWire(Object? wire) => switch (asString(wire)) {
+    'pending' => pending,
+    'working' => working,
+    'reported' => reported,
+    'done' => done,
+    _ => unknown,
+  };
+}
+
+/// One member's share of a stage: who, what, and how far it got.
+class DsBotGoalTask {
+  const DsBotGoalTask({required this.botId, required this.name, required this.task, required this.status, this.note});
+
+  factory DsBotGoalTask.fromJson(Object? json) {
+    final map = asMapOrEmpty(json);
+    return DsBotGoalTask(
+      botId: asString(map['botId']) ?? '',
+      name: asString(map['name']) ?? '',
+      task: asString(map['task']) ?? '',
+      status: DsBotTaskStatus.fromWire(map['status']),
+      note: asString(map['note']),
+    );
+  }
+
+  final String botId;
+
+  /// The member's name as the host knew it when it built the board; a member
+  /// removed since still names here.
+  final String name;
+  final String task;
+  final DsBotTaskStatus status;
+
+  /// Where it stands, in the member's own words (a rework's reason, a report).
+  final String? note;
+}
+
+/// One stage: what it takes to pass it, and who does what.
+class DsBotGoalStage {
+  const DsBotGoalStage({
+    required this.index,
+    required this.title,
+    required this.acceptance,
+    required this.status,
+    this.reworks = 0,
+    this.feedback,
+    this.tasks = const [],
+  });
+
+  factory DsBotGoalStage.fromJson(Object? json) {
+    final map = asMapOrEmpty(json);
+    return DsBotGoalStage(
+      index: asInt(map['index']) ?? 0,
+      title: asString(map['title']) ?? '',
+      acceptance: asString(map['acceptance']) ?? '',
+      status: DsBotStageStatus.fromWire(map['status']),
+      reworks: asInt(map['reworks']) ?? 0,
+      feedback: asString(map['feedback']),
+      tasks: [for (final task in asListOrEmpty(map['tasks'])) DsBotGoalTask.fromJson(task)],
+    );
+  }
+
+  /// 0-based position in the ledger.
+  final int index;
+  final String title;
+
+  /// How the admin judges this stage done.
+  final String acceptance;
+  final DsBotStageStatus status;
+
+  /// Times this stage was sent back for more work.
+  final int reworks;
+
+  /// Why it was sent back, kept until the next pass.
+  final String? feedback;
+  final List<DsBotGoalTask> tasks;
+
+  bool get passed => status == DsBotStageStatus.passed;
+  bool get active => status == DsBotStageStatus.active;
+
+  /// Tasks that still need the member.
+  int get open => tasks.where((t) => t.status != DsBotTaskStatus.done).length;
+}
+
+/// A group's goal as `room-chat` sends it: the whole stage/task board.
+///
+/// Null on a group without a goal, and on a host from before the mobile API
+/// (see [DsBotApi.hello] and [DsBotHello.supports] with `'room-goal'`).
+class DsBotRoomGoal {
+  const DsBotRoomGoal({
+    required this.id,
+    required this.revision,
+    required this.status,
+    required this.title,
+    this.objective = '',
+    this.acceptance = '',
+    this.constraints = const [],
+    this.current = 0,
+    this.stages = const [],
+    this.updatedAt,
+    this.startedAt,
+    this.endedAt,
+    this.summary,
+    this.evidence,
+    this.reason,
+  });
+
+  factory DsBotRoomGoal.fromJson(Object? json) {
+    final map = asMapOrEmpty(json);
+    final stages = [for (final stage in asListOrEmpty(map['stages'])) DsBotGoalStage.fromJson(stage)];
+    return DsBotRoomGoal(
+      id: asString(map['id']) ?? '',
+      revision: asInt(map['revision']) ?? 0,
+      status: DsBotGoalStatus.fromWire(map['status']),
+      title: asString(map['title']) ?? '',
+      objective: asString(map['objective']) ?? '',
+      acceptance: asString(map['acceptance']) ?? '',
+      constraints: asStringList(map['constraints']),
+      current: asInt(map['current']) ?? 0,
+      stages: stages,
+      updatedAt: asEpochMs(map['updatedAt']),
+      startedAt: asEpochMs(map['startedAt']),
+      endedAt: asEpochMs(map['endedAt']),
+      summary: asString(map['summary']),
+      evidence: asString(map['evidence']),
+      reason: asString(map['reason']),
+    );
+  }
+
+  final String id;
+
+  /// Bumped on every change; two reads that agree say nothing moved.
+  final int revision;
+  final DsBotGoalStatus status;
+  final String title;
+
+  /// What the user asked this group to reach.
+  final String objective;
+  final String acceptance;
+  final List<String> constraints;
+
+  /// Index of the stage under way.
+  final int current;
+  final List<DsBotGoalStage> stages;
+  final DateTime? updatedAt;
+  final DateTime? startedAt;
+  final DateTime? endedAt;
+
+  /// A finished goal's own account of what it delivered.
+  final String? summary;
+  final String? evidence;
+
+  /// A stopped goal's why.
+  final String? reason;
+
+  /// Started and still being worked on (paused included).
+  bool get live => status == DsBotGoalStatus.active || status == DsBotGoalStatus.paused;
+
+  /// Done, either way it can end.
+  bool get finished => status == DsBotGoalStatus.complete || status == DsBotGoalStatus.stopped;
+
+  /// A goal with a ledger to draw.
+  bool get hasStages => stages.isNotEmpty;
+
+  DsBotGoalStage? get currentStage => current >= 0 && current < stages.length ? stages[current] : null;
+
+  int get passedStages => stages.where((s) => s.passed).length;
+}
+
 /// A page of a group chat.
 class DsBotRoomPage {
-  const DsBotRoomPage({required this.roomId, required this.items, this.cursor, this.running = false, this.speaking});
+  const DsBotRoomPage({
+    required this.roomId,
+    required this.items,
+    this.cursor,
+    this.running = false,
+    this.speaking,
+    this.goal,
+  });
 
   factory DsBotRoomPage.fromJson(Object? json) {
     final map = asMapOrEmpty(json);
@@ -960,6 +1192,8 @@ class DsBotRoomPage {
       cursor: map['cursor'],
       running: asBool(map['running']) ?? false,
       speaking: asString(map['speaking']),
+      // Absent on a host from before `group_goal`; null on a group without one.
+      goal: asMap(map['goal']) == null ? null : DsBotRoomGoal.fromJson(map['goal']),
     );
   }
 
@@ -972,6 +1206,9 @@ class DsBotRoomPage {
 
   /// The member speaking now.
   final String? speaking;
+
+  /// The group's goal and its stage/task board; null when it has none.
+  final DsBotRoomGoal? goal;
 }
 
 /// Kinds of [DsBotNotice].

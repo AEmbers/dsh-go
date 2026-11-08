@@ -8,10 +8,16 @@ import 'package:dsh_app/l10n/l10n.dart';
 import 'package:dsh_app/ui/chat/dsh_ui/dsh_ui.dart';
 import 'package:dsh_app/ui/chat/dsh_ui/dsh_ui_dialect_card.dart';
 import 'package:dsh_app/ui/chat/dsh_ui/dsh_ui_dialect_genui.dart';
+import 'package:dsh_app/ui/chat/render/mermaid_preview.dart';
+// The platform interface is what webview_flutter builds on; the app only
+// depends on webview_flutter.
+// ignore: depend_on_referenced_packages
+import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/harness.dart';
+import '../../web/support/fake_webview.dart';
 
 String j(Object json) => jsonEncode(json);
 
@@ -97,14 +103,26 @@ void main() {
   });
 
   group('mapping', () {
-    test('a status report becomes a read-only plugin view, marked genui', () {
+    test('a status report becomes a plugin view, marked genui', () {
       final parsed = parseDshUiUncached(report);
       expect(parsed, isA<DshUiParsed>());
       final view = (parsed as DshUiParsed).view;
       expect(view.dialect, 'genui');
       expect(view.version, 2);
       expect(view.title, '本周构建');
-      expect(view.interactive, isFalse, reason: 'nothing in a genui block answers the model from the app');
+      // A button and a submit are live: the card answers the model itself,
+      // through the plugin view's own actions rather than an option list.
+      expect(view.answerNodes, isEmpty);
+      final actions = view.nodes.whereType<DshUiActions>().toList();
+      expect(actions, hasLength(1));
+      expect([for (final b in actions.single.items) b.label], ['重跑']);
+      // The submit is a form of its own: what it collects is the run of bound
+      // controls before it, and here there is none.
+      final form = view.nodes.whereType<DshUiControlContainer>().single;
+      expect(form.kind, 'form');
+      expect(form.submitLabel, '提交');
+      expect(form.submit, isNotNull);
+      expect(form.inputs, isEmpty);
 
       final metrics = view.nodes.whereType<DshUiMetric>().toList();
       expect([for (final m in metrics) m.label], ['通过', '失败', '耗时']);
@@ -140,12 +158,9 @@ void main() {
         for (final n in view.nodes)
           if (n is DshUiControlDisplay && n.kind == 'tag') n.text,
       ];
-      expect(tags, [
-        appL10n.viewUiDialectWebOnly(appL10n.viewUiDialectKindChart),
-        appL10n.viewUiDialectWebOnly(appL10n.viewUiDialectKindInteractive),
-      ]);
+      expect(tags, [appL10n.viewUiDialectWebOnly(appL10n.viewUiDialectKindChart)]);
       expect(view.nodes.whereType<DshUiPlaceholder>(), isEmpty, reason: 'no grey 「这部分无法显示」 rows');
-      expect([for (final i in view.issues) i.path], containsAll(['spec.items[4]', 'spec.items[5]', 'spec.items[6]']));
+      expect([for (final i in view.issues) i.path], contains('spec.items[4]'));
     });
 
     test('genui chart data become categories and aligned series', () {
@@ -343,12 +358,14 @@ void main() {
       expect((parseDshUiUncached(own) as DshUiInvalid).dialect, isNull);
     });
 
-    test('the mapped tree never carries an action', () {
+    test("the mapped tree answers under its own ids, never genui's own names", () {
       final mapping = genuiToPluginView(jsonDecode(report));
       final text = jsonEncode(mapping.view);
-      expect(text.contains('"action"'), isFalse);
-      expect(text.contains('"onChange"'), isFalse);
-      expect(text.contains('"bind"'), isFalse);
+      // A tap comes back as the plugin view's id; what the id means lives in
+      // the card, so the tree never carries genui's free-form action name.
+      expect(text.contains('"rerun"'), isFalse);
+      expect(text.contains('"grade"'), isFalse);
+      expect(mapping.card.controls.values.map((c) => c.action), containsAll(['rerun', 'grade']));
     });
 
     test('mapping is total on hostile input', () {
@@ -384,6 +401,277 @@ void main() {
       ]) {
         expect(() => genuiToPluginView(input), returnsNormally, reason: '$input');
       }
+    });
+  });
+
+  group('embedded diagrams and charts', () {
+    setUpAll(loadTestFonts);
+
+    test('a mermaid diagram is a code block tagged mermaid, which the app renders', () {
+      final view = (parseDshUiUncached(
+        j({
+          'items': [
+            {
+              'type': 'mermaid',
+              'code': 'graph TD;\n  A-->B;',
+            },
+          ],
+        }),
+      ) as DshUiParsed).view;
+      final block = view.nodes.whereType<DshUiControlDisplay>().single;
+      expect(block.kind, 'codeBlock');
+      expect(block.language, 'mermaid');
+      expect(block.text, 'graph TD;\n  A-->B;');
+      // Nothing is dropped to the web page: the fence carries the whole source.
+      expect(view.nodes.whereType<DshUiControlDisplay>().where((n) => n.kind == 'tag'), isEmpty);
+    });
+
+    test('a mermaid block without code is absent, not an empty box', () {
+      final view = (parseDshUiUncached(
+        j({
+          'items': [
+            {'type': 'mermaid', 'code': null},
+            {'type': 'text', 'content': '在'},
+          ],
+        }),
+      ) as DshUiParsed).view;
+      expect(view.nodes.whereType<DshUiControlDisplay>(), isEmpty);
+      expect([for (final n in view.nodes.whereType<DshUiText>()) n.text], contains('在'));
+    });
+
+    test('echart presets become native chart kinds; scatter keeps the web tag', () {
+      DshUiChart chartFor(Object preset) => (parseDshUiUncached(
+        j({
+          'items': [
+            {
+              'type': 'echart',
+              'preset': preset,
+              'title': '销量',
+              'data': [
+                {'label': '一月', 'value': 3},
+                {'label': '二月', 'value': 5},
+              ],
+            },
+          ],
+        }),
+      ) as DshUiParsed).view.nodes.whereType<DshUiChart>().single;
+
+      expect(chartFor('bar').kind, DshUiChartKind.bar);
+      expect(chartFor('line').kind, DshUiChartKind.line);
+      expect(chartFor('area').kind, DshUiChartKind.line);
+      expect(chartFor('pie').kind, DshUiChartKind.donut);
+      expect(chartFor('no-such-preset').kind, DshUiChartKind.bar, reason: 'bar is the default shape');
+
+      final bars = chartFor('bar');
+      expect(bars.categories, ['一月', '二月']);
+      expect([for (final s in bars.series) s.values], [
+        [3.0, 5.0],
+      ]);
+      expect(bars.caption, '销量');
+
+      final scatter = (parseDshUiUncached(
+        j({
+          'items': [
+            {
+              'type': 'echart',
+              'preset': 'scatter',
+              'data': [
+                {'label': 'a', 'value': 1},
+              ],
+            },
+          ],
+        }),
+      ) as DshUiParsed).view;
+      expect(scatter.nodes.whereType<DshUiChart>(), isEmpty);
+      expect(
+        [for (final n in scatter.nodes.whereType<DshUiControlDisplay>()) n.text],
+        [appL10n.viewUiDialectWebOnly(appL10n.viewUiDialectKindChart)],
+      );
+    });
+
+    test('echart named series line up on one set of categories', () {
+      final chart = (parseDshUiUncached(
+        j({
+          'items': [
+            {
+              'type': 'echart',
+              'preset': 'line',
+              'series': [
+                {
+                  'name': '今年',
+                  'data': [
+                    {'label': 'Q1', 'value': 30},
+                    {'label': 'Q2', 'value': 45},
+                  ],
+                },
+                {
+                  'name': '去年',
+                  'data': [
+                    {'label': 'Q2', 'value': 20},
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      ) as DshUiParsed).view.nodes.whereType<DshUiChart>().single;
+      expect(chart.kind, DshUiChartKind.line);
+      expect(chart.categories, ['Q1', 'Q2']);
+      expect([for (final s in chart.series) s.name], ['今年', '去年']);
+      expect(chart.series[1].values, [null, 20.0], reason: 'a short row is padded, not shifted');
+    });
+
+    test('plot samples an expression into a polyline over its domain', () {
+      final chart = (parseDshUiUncached(
+        j({
+          'items': [
+            {
+              'type': 'plot',
+              'title': '正弦',
+              'xMin': 0,
+              'xMax': 6,
+              'series': [
+                {'label': 'sin', 'expr': 'sin(x)'},
+              ],
+            },
+          ],
+        }),
+      ) as DshUiParsed).view.nodes.whereType<DshUiChart>().single;
+      expect(chart.kind, DshUiChartKind.line);
+      expect(chart.categories, hasLength(40));
+      expect(chart.categories.first, '0.00');
+      expect(chart.categories.last, '6.00');
+      final values = chart.series.single.values;
+      expect(values, hasLength(40));
+      // sin(0)=0, sin(π/2)≈1 — sampled coarsely, so allow a tenth.
+      expect(values.first, closeTo(0, 0.001));
+      final peak = values.map((v) => v ?? -2).reduce((a, b) => a > b ? a : b);
+      expect(peak, closeTo(1, 0.1));
+      expect(chart.series.single.name, 'sin');
+      expect(chart.caption, '正弦');
+    });
+
+    test('plot keeps parameters and drops what it cannot evaluate', () {
+      final view = (parseDshUiUncached(
+        j({
+          'items': [
+            {
+              'type': 'plot',
+              'xMin': -1,
+              'xMax': 1,
+              'series': [
+                {'expr': 'a*x', 'params': {'a': 2}},
+                {'expr': 'no_such_function(x)'},
+                {'label': 'no expr'},
+              ],
+            },
+          ],
+        }),
+      ) as DshUiParsed).view;
+      final chart = view.nodes.whereType<DshUiChart>().single;
+      expect([for (final s in chart.series) s.name], ['a*x'], reason: 'a labelled name is optional');
+      expect(chart.series.single.values.first, closeTo(-2, 0.001));
+      expect(chart.series.single.values.last, closeTo(2, 0.001));
+    });
+
+    test('a plot with nowhere to go is the web tag, not an empty chart', () {
+      for (final spec in <Object?>[
+        {'type': 'plot'},
+        {
+          'type': 'plot',
+          'xMin': 5,
+          'xMax': 5,
+          'series': [
+            {'expr': 'x'},
+          ],
+        },
+        {
+          'type': 'plot',
+          'xMin': 0,
+          'xMax': 1,
+          'series': [
+            {'expr': ')))'},
+          ],
+        },
+      ]) {
+        final parsed = parseDshUiUncached(
+          j({
+            'items': [spec],
+          }),
+        );
+        // Nothing to draw: either the block is dropped whole (genui's own
+        // 「no resend」 fallback) or the plot is replaced by the web tag. What
+        // never happens is an empty chart on screen.
+        if (parsed is DshUiInvalid) continue;
+        final view = (parsed as DshUiParsed).view;
+        expect(view.nodes.whereType<DshUiChart>(), isEmpty, reason: '$spec');
+      }
+    });
+
+    testWidgets('a mermaid fence in a plugin card offers the full-screen preview', (tester) async {
+      WebViewPlatform.instance = FakeWebViewPlatform();
+      usePhoneView(tester);
+      await tester.pumpWidget(
+        testApp(
+          Scaffold(
+            body: DshUiScope(
+              sessionId: 's1',
+              messageId: 'a1',
+              state: DshUiState.live,
+              onReply: (_) async => true,
+              onAskResend: (_) async => true,
+              child: DshUiBlock(
+                source: j({
+                  'items': [
+                    {
+                      'type': 'mermaid',
+                      'code': 'graph TD;\n  A-->B;',
+                    },
+                  ],
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      // Tagged as a diagram, not as the language name, and both the source and
+      // the way into the renderer are on screen.
+      expect(find.text(appL10n.chatMermaidChart), findsOneWidget);
+      expect(find.text(appL10n.chatPreview), findsOneWidget);
+      expect(find.textContaining('graph TD'), findsWidgets);
+
+      await tester.tap(find.text(appL10n.chatPreview));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(MermaidPreviewPage), findsOneWidget);
+    });
+
+    testWidgets('an ordinary code fence in a plugin card keeps the copy header only', (tester) async {
+      usePhoneView(tester);
+      await tester.pumpWidget(
+        testApp(
+          Scaffold(
+            body: DshUiScope(
+              sessionId: 's1',
+              messageId: 'a1',
+              state: DshUiState.live,
+              onReply: (_) async => true,
+              onAskResend: (_) async => true,
+              child: DshUiBlock(
+                source: j({
+                  'items': [
+                    {'type': 'code', 'lang': 'dart', 'code': 'void main() {}'},
+                  ],
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text(appL10n.chatMermaidChart), findsNothing);
+      expect(find.text(appL10n.chatPreview), findsNothing);
     });
   });
 

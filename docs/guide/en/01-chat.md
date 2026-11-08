@@ -28,6 +28,17 @@ Tap an image to view it full screen. Pinch to zoom in or out, up to 8x; double-t
 
 When the composer is empty and speech recognition is available, the send button becomes a microphone. Tap it and speak; your words fill the composer so you can check them before sending. When the recognition service isn't available, **Change** on the notice opens the voice input settings.
 
+## Reading replies out loud
+
+When the host has the voice-mode plugin enabled, a strip sits above the composer naming what the voice is doing: **Listening**, **Thinking**, **Speaking** or **Working**. The one button on it starts or ends talking; while it speaks there is also **Interrupt**. When another chat holds the microphone the strip says so and the button is unavailable for now. If speech keeps failing a warning icon appears with a tooltip suggesting the cloud may be unreachable.
+
+**Voice settings** has four sections. The first is **Read aloud**: **Voice turns only** speaks just the turns you asked by voice, **Every reply** speaks all of them, **Never** keeps everything in text. Under it are **Show captions** and **Show the status bar**, each switched on its own. When dsh manages the settings this section is read-only and the page says to change them in the settings panel.
+
+- The second is **Trigger**: **Tap to start, tap to finish**, **Hold to talk**, **One phrase only**. After **Speak** the voice keeps going until you tap **Stop**.
+- The third is the engine: **Engine** offers **Edge cloud**, **Kokoro local** or **VITS local**. Below come **Voice**, **Rate** (the two buttons step it by 0.1×), **Interrupt by** (**Automatic**, **Manual**, **Detected speech**), **End of speech** and **Idle hang-up**; **Voice**, **End of speech** and **Idle hang-up** only show the current value here and do not take a tap.
+- The fourth is the models: they download the first time, and until that finishes the row says **Models not ready** with **Recognition model** and **Speech model** underneath and **Retry loading models** on the right. One installed doesn't help the other. **Recognition failed** means that phrase was not caught.
+
+If the live feed drops, the top of the settings page says **Reconnecting the voice feed** or that it fell back to polling; voice keeps working, replies just slow down until the connection returns. Without the plugin the page says **This host does not have the voice mode plugin**; with it installed but off it says **The voice mode plugin is off** and offers **Enable voice mode**.
 ## Create images and video
 
 When the current host has the image and video plugin, the plus panel has a **Create** tile. Tap it to enter create mode: a capsule above the composer shows the settings, such as "Image · 3:4 · 2 images". Tap the capsule to change the type, model, aspect, number and quality, and for video the length and sound; then describe what you want and send; the settings show under your message. The × on the capsule leaves create mode and keeps what you typed. You can also just ask the AI, "draw a cat napping on the windowsill".

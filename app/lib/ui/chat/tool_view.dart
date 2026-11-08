@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dsh_client/dsh_client.dart';
 
 import '../../l10n/l10n.dart';
+import '../agents/team_inline_card.dart' show agentTeamsCreateMetaOf;
 import '../common/tool_glyph.dart';
 import 'dsh_ui/dsh_ui_model.dart' show DshUiParse, DshUiParsed;
 import 'dsh_ui/dsh_ui_plugin.dart';
@@ -35,8 +36,15 @@ MediaMeta? toolMedia(ToolChatItem item) {
 
 final _media = Expando<(MediaMeta?,)>('media');
 
-/// 这次调用带了一张画得出来的原生卡片(插件卡片,或生成的媒体卡)。
-bool hasToolCard(ToolChatItem item) => toolCardParse(item) is DshUiParsed || toolMedia(item) != null;
+/// 这次调用带了一张画得出来的原生卡片(插件卡片、生成的媒体卡,或
+/// agent-teams 的团队卡)。
+///
+/// agent-teams 的 `agent_teams_create` 不写 `meta["dsh-go/view"]`(插件只发
+/// `presentationMeta`),它的卡片靠工具名加结果里的 `team_id` 认出来,见
+/// [agentTeamsCreateMetaOf]。判据收在这里,调用方([deriveRows] 的成组与折叠)
+/// 就不用各自再认一遍。
+bool hasToolCard(ToolChatItem item) =>
+    toolCardParse(item) is DshUiParsed || toolMedia(item) != null || agentTeamsCreateMetaOf(item) != null;
 
 /// 带原生卡片的工具调用,卡片画在哪(`ToolCallRow.card`)。
 enum ToolCardPlacement {

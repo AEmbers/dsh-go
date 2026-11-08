@@ -17,6 +17,7 @@ class DshUiScope extends InheritedWidget {
     required this.messageId,
     required this.state,
     this.onReply,
+    this.onAction,
     this.onAskResend,
     required super.child,
   });
@@ -32,6 +33,12 @@ class DshUiScope extends InheritedWidget {
   /// 用户点了选项 / 确认：发出 `[dsh-ui reply]` 消息（`ChatController.send`）。
   final DshUiSend? onReply;
 
+  /// genui 围栏里的控件被触发：发出 `[genui-action] <action> <json>` 文本。
+  ///
+  /// 与 [onReply] 分开是因为两者语义相反：[onReply] 是「回答这条视图」，
+  /// 应当插进当前这一轮；genui 的动作是一个新任务，要排队等这一轮收尾。
+  final DshUiSend? onAction;
+
   /// 视图格式有误时「让它重发」：发出一条说明错误的消息。
   final DshUiSend? onAskResend;
 
@@ -43,5 +50,6 @@ class DshUiScope extends InheritedWidget {
       old.messageId != messageId ||
       old.state != state ||
       old.onReply != onReply ||
+      old.onAction != onAction ||
       old.onAskResend != onAskResend;
 }

@@ -952,6 +952,7 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
               pending: [for (final p in s.pending) p.text],
             ),
       onReply: chat.send,
+      onAction: (text) => chat.send(text, mode: SendMode.queue),
       onAskResend: chat.send,
       child: message,
     );

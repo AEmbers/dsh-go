@@ -27,7 +27,7 @@ const cases = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 process.stdout.write(JSON.stringify(cases.map(c => ({name:c.name, ...checkView(c.view, {budget:c.budget, data:c.data, lang:'en'})}))));''',
         Uri.file('${kit.path}/lib/view-check.js').toString(),
         inputs.path,
-      ]);
+      ], stdoutEncoding: utf8, stderrEncoding: utf8);
     } on ProcessException catch (error) {
       // ENOENT: this optional cross-runtime check needs a Node executable.
       // Permission errors and a Node process that starts but fails stay errors.

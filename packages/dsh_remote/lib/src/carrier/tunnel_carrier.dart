@@ -16,9 +16,14 @@ import '../state.dart';
 import '../transport/transport.dart';
 import '../util/bytes.dart';
 
-/// Fixed endpoint allow-list of the Host plugin (ds-harness-remote 0.5.17 to 0.6.0,
+/// Fixed endpoint allow-list of the Host plugin (ds-harness-remote 0.6.3,
 /// `HARNESS_REMOTE_ALLOWLIST` + terminal endpoints). Everything else is
 /// refused by the Host; this client refuses it locally first.
+///
+/// `dsBot/call` and `dsBot/feed` carry the DS Bot channel when the carrier is
+/// the relay ([DsBotRpcTransport] in `dsh_client`). A Host on an older
+/// ds-harness-remote refuses them with `METHOD_NOT_ALLOWED`; the client then
+/// reports [DsBotAvailability.relay] instead of reading it as a missing plugin.
 const Set<String> harnessRemoteAllowlist = {
   r'$events',
   r'$events/result',
@@ -31,6 +36,10 @@ const Set<String> harnessRemoteAllowlist = {
   'credentials/set',
   'credentials/unset',
   'directoryPicker/list',
+  // The DS Bot channel over the relay (`DsBotRpcTransport`). ds-harness-remote
+  // 0.6.3 lists both; an older Host refuses them and the client falls back.
+  'dsBot/call',
+  'dsBot/feed',
   'fileReferences/list',
   'goals/clear',
   'goals/complete',

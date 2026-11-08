@@ -279,14 +279,23 @@ final class DshUiView {
     this.version = 1,
     this.styles = const {},
     this.dialect,
+    this.genui,
   });
 
-  /// The fence came in another plugin's format and was mapped onto a
-  /// read-only plugin view (`genui`); null for the app's own format.
+  /// The fence came in another plugin's format and was mapped onto the
+  /// plugin view (`genui`); null for the app's own format.
   final String? dialect;
 
+  /// For a `genui` fence: what each of its controls means, so a tap can be
+  /// turned back into the `[genui-action]` text genui itself sends.
+  final GenuiCard? genui;
+
   /// This view, marked as mapped from [name]'s format.
-  DshUiView asDialect(String name, {List<DshUiIssue> notes = const []}) => DshUiView(
+  DshUiView asDialect(
+    String name, {
+    List<DshUiIssue> notes = const [],
+    GenuiCard? genui,
+  }) => DshUiView(
     root: root,
     title: title,
     issues: List.unmodifiable([...issues, ...notes]),
@@ -294,6 +303,7 @@ final class DshUiView {
     version: version,
     styles: styles,
     dialect: name,
+    genui: genui,
   );
 
   /// Only an explicit plugin-view v2 enables author styles. Model cards and
@@ -438,7 +448,8 @@ DshUiParse _parseGenui(Object? json) {
     return DshUiInvalid(DshUiIssue('view', appL10n.viewUiDialectInvalid), dialect: 'genui');
   }
   return switch (parseDshUiPluginUncached(view)) {
-    DshUiParsed(view: final parsed) => DshUiParsed(parsed.asDialect('genui', notes: notes)),
+    DshUiParsed(view: final parsed) =>
+      DshUiParsed(parsed.asDialect('genui', notes: notes, genui: mapping.card)),
     DshUiInvalid(:final error) => DshUiInvalid(error, dialect: 'genui'),
   };
 }
