@@ -195,8 +195,14 @@ async function installHooks() {
   const { realpathSync } = await import('node:fs')
   const parents = []
   const add = (pkgDir) => {
+    // Resolving from inside the install needs any file in it as an anchor. `lib/bin.js` is the
+    // CLI entry and the natural one, but the packaged desktop install ships only
+    // `package.json` + `node_modules`, so fall back to the manifest instead of dropping the
+    // install entirely (which made DSH_DIR silently useless).
     const bin = join(pkgDir, 'lib', 'bin.js')
+    const manifest = join(pkgDir, 'package.json')
     if (existsSync(bin)) parents.push(pathToFileURL(bin).href)
+    else if (existsSync(manifest)) parents.push(pathToFileURL(manifest).href)
   }
   if (process.env.DSH_DIR) add(process.env.DSH_DIR)
   for (const d of (process.env.PATH ?? '').split(delimiter)) {
@@ -207,12 +213,18 @@ async function installHooks() {
     } catch {}
   }
   const stub = `data:text/javascript,${encodeURIComponent('export const defineTool = (o) => o')}`
+  // A bare specifier failed from where the plugin lives. The plugin's own tree is not the
+  // only place it can come from: a dependency of a `@deepseek-ai/*` package (say
+  // `@js-temporal/polyfill`, imported by `dsh-util-time`) is only ever installed next to
+  // that package. Retry from inside the DSH install, exactly as the loader would.
+  const isBare = (s) => !s.startsWith('.') && !s.startsWith('/') && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(s)
   registerHooks({
     resolve(specifier, context, next) {
-      if (!specifier.startsWith('@deepseek-ai/')) return next(specifier, context)
       try {
         return next(specifier, context)
-      } catch {}
+      } catch (error) {
+        if (!isBare(specifier)) throw error
+      }
       for (const parentURL of parents) {
         try {
           return next(specifier, { ...context, parentURL })
@@ -260,10 +272,73 @@ async function loadIn(pkgJson, dir, w) {
     return { ok: false, error: w.loadFailed(String(error?.message ?? error).split('\n')[0]) }
   }
   const tools = []
+  // The services a dsh-go host really has. `webServer` and `settings` are in nearly every
+  // profile and plugins register routes and settings scopes on them unconditionally in
+  // `apply`; without a stand-in the load dies on `ctx.webServer.register` before it ever
+  // reaches the dshGo half this check is about.
+  const routes = []
+  const settingsScopes = []
   const services = {
     tools: { register: (def) => { tools.push(def?.name); return () => {} } },
     sessions: { get: () => undefined, list: () => [] },
     commands: { register: () => () => {} },
+    webServer: {
+      register: (route) => {
+        routes.push(route)
+        return () => { const i = routes.indexOf(route); if (i >= 0) routes.splice(i, 1) }
+      },
+    },
+    settings: {
+      register: (namespace, schema, options) => {
+        const scope = {
+          namespace,
+          get: () => schema?.['~standard']?.validate?.(options?.base ?? {})?.value ?? options?.base ?? {},
+          set: () => {},
+          watch: () => () => {},
+          onChange: () => () => {},
+        }
+        settingsScopes.push(scope)
+        return scope
+      },
+    },
+  }
+  // A stand-in for any service the plugin declares it needs. `apply` of a real plugin mixes
+  // the dshGo half with ordinary host work — registering routes, settings scopes, a system
+  // prompt section, subagent delivery guards — and touching one absent service aborts the
+  // whole load, hiding the half this check is about. Anything is callable and yields
+  // `undefined`, so a plugin that only wires services up passes; a plugin that *depends* on a
+  // service's answer still meets `undefined`, never a fabricated success.
+  const stubService = (() => {
+    const cache = new Map()
+    const make = (label) => {
+      const empty = function* () {}
+      const target = function () {}
+      const proxy = new Proxy(target, {
+        get(_t, prop) {
+          if (prop === 'then' || prop === 'toJSON') return undefined
+          // A service that yields a collection is spread, iterated and `for…of`-ed by plugins
+          // (`for (const agent of ctx.agents.list())`). Answer with an empty one instead of
+          // `undefined`, which would throw out of the plugin's own `apply`.
+          if (prop === Symbol.iterator) return empty
+          if (typeof prop === 'symbol') return undefined
+          const key = `${label}.${String(prop)}`
+          if (!cache.has(key)) cache.set(key, make(key))
+          return cache.get(key)
+        },
+        apply() { return proxy },
+        set() { return true },
+        has() { return true },
+      })
+      return proxy
+    }
+    return make
+  })()
+  const injected = Array.isArray(mod.inject)
+    ? mod.inject
+    : (mod.inject && typeof mod.inject === 'object' ? Object.keys(mod.inject) : [])
+  for (const name of injected) {
+    if (name === 'dshGo' || name in services) continue
+    services[name] = stubService(name)
   }
   // As the newest app sees it: every v1.2 capability on offer.
   const { FEATURES } = await import('./bridge/capabilities.js')
@@ -320,9 +395,14 @@ async function loadIn(pkgJson, dir, w) {
     for (const e of feed.errors) notes.push({ path: `/runtime/${feed.id}`, code: 'load', severity: 'error', message: w.stripEmit(feed.id, e) })
     feed.stop()
   }
+  // Read the registrations BEFORE disposing: a plugin that registers its dshGo surface inside
+  // `ctx.effect(() => () => { off() })` (the documented way to make the bridge unwind with the
+  // plugin) would otherwise be reported as having no handlers at all — `dispose()` runs those
+  // disposers and unregisters every panel and handler it just registered.
+  const registrations = host.registrations()
   host.dispose()
   const count = [...Object.values(row.contributes)].flat().filter((x) => x.ready).length
-  return { ok: true, row, notes, views, tools: tools.filter(Boolean), registered: count, registrations: host.registrations() }
+  return { ok: true, row, notes, views, tools: tools.filter(Boolean), registered: count, registrations }
 }
 
 // ── plugin ────────────────────────────────────────────────────────────────

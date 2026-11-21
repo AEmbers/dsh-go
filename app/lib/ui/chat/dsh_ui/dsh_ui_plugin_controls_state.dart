@@ -40,7 +40,14 @@ class PluginDraftController extends ChangeNotifier {
   bool _draining = false;
   Timer? _changeCooldown;
   int _revision = 0;
-  int _actionSequence = 0;
+
+  /// Controls with an invoke the Host has not answered yet, keyed by the
+  /// control and the action it runs. A second tap on the same control while
+  /// that same action is in flight is the same intent, not a new one: the queue
+  /// alone cannot tell them apart, because [_drain] removes the key before
+  /// awaiting the send. Two different buttons of one component are two
+  /// intents, which is why the action id is part of the key.
+  final _inFlight = <String>{};
   int _remoteRevision = 0;
   final _drafts = <String, _Draft>{};
   final _inputs = <String, DshUiInput>{};
@@ -213,11 +220,24 @@ class PluginDraftController extends ChangeNotifier {
 
   /// v2 buttons share the same lane as changes and submits. There is never an
   /// older local invoke response arriving after a newer local invoke response.
-  Future<bool> invoke(PluginAction action) {
-    final stamped = action.source == PluginActionSource.change || action.gestureAt != null
-        ? action
-        : action.withGestureAt(_clock());
-    return _enqueue('action:${++_actionSequence}:${action.path}', stamped, const []);
+  Future<bool> invoke(PluginAction action) async {
+    if (!enabled || _disposed) return false;
+    // The lane key is the control plus the action: two taps on one button are
+    // the same intent, while the neighbouring button on the same component is a
+    // different one and must still be sent.
+    final intent = '${action.path}\u0000${action.id}';
+    if (!_inFlight.add(intent)) return false;
+    try {
+      final stamped = action.source == PluginActionSource.change || action.gestureAt != null
+          ? action
+          : action.withGestureAt(_clock());
+      // Keyed by intent alone: one lane per button. A second tap while the first
+      // is still out is the same intent, not a new one, so it must not sit in
+      // the queue beside the first — and a stale lane key would do exactly that.
+      return await _enqueue('action:$intent', stamped, const []);
+    } finally {
+      _inFlight.remove(intent);
+    }
   }
 
   Future<bool> _enqueue(String key, PluginAction action, List<String> bindings) {
@@ -310,6 +330,7 @@ class PluginDraftController extends ChangeNotifier {
       request.done.complete(false);
     }
     _queue.clear();
+    _inFlight.clear();
   }
 
   @override

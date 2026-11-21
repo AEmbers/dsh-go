@@ -9,6 +9,7 @@ import '../../common/expand_reveal.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
 import '../render/code_block.dart';
+import '../render/mermaid_preview.dart';
 import 'dsh_ui_blocks.dart';
 import 'dsh_ui_model.dart';
 import 'dsh_ui_plugin_choice.dart';
@@ -1512,6 +1513,13 @@ class _PluginCodeBlock extends StatefulWidget {
 
 class _PluginCodeBlockState extends State<_PluginCodeBlock> {
   bool _copied = false;
+
+  /// A `mermaid` block is a diagram source, not source code: it says so in the
+  /// header and offers the same full-screen preview the chat's own code block
+  /// does, so a `` ```mermaid `` fence inside a plugin card is never a wall of
+  /// grey text.
+  bool get _mermaid => widget.language?.trim().toLowerCase() == 'mermaid';
+
   @override
   void didUpdateWidget(_PluginCodeBlock old) {
     super.didUpdateWidget(old);
@@ -1539,13 +1547,34 @@ class _PluginCodeBlockState extends State<_PluginCodeBlock> {
             child: Row(
               children: [
                 SizedBox(width: inset),
+                if (_mermaid) ...[
+                  Icon(AppIcons.diagram, size: 14, color: tones.wellMuted),
+                  const SizedBox(width: 6),
+                ],
                 Expanded(
                   child: Text(
-                    widget.language ?? '',
+                    _mermaid ? context.l10n.chatMermaidChart : widget.language ?? '',
                     key: ValueKey('plugin-code-language:${widget.path}'),
-                    style: AppType.monoLabel(color: tones.wellMuted),
+                    style: _mermaid
+                        ? AppType.monoLabel(color: tones.wellMuted).copyWith(fontSize: 12)
+                        : AppType.monoLabel(color: tones.wellMuted),
                   ),
                 ),
+                if (_mermaid) ...[
+                  DshUiControlButton(
+                    key: ValueKey('plugin-code-preview:${widget.path}'),
+                    label: context.l10n.chatPreview,
+                    semanticLabel: context.l10n.chatPreview,
+                    icon: compact ? AppIcons.preview : null,
+                    leadingIcon: compact ? null : AppIcons.preview,
+                    tone: DshUiButtonTone.quiet,
+                    small: true,
+                    fill: tones.well,
+                    onPressed: () =>
+                        Navigator.of(context).push(MermaidPreviewPage.route(source: widget.code)),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 const SizedBox(width: 8),
                 DshUiControlButton(
                   key: ValueKey('plugin-code-copy:${widget.path}'),

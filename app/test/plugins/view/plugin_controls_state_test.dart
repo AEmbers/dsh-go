@@ -61,6 +61,26 @@ void main() {
     expect(sent.last.gestureAt, preserved, reason: 'A pre-existing host stamp cannot be renewed at dispatch');
   });
 
+  testWidgets('one button tapped twice while in flight is sent once', (tester) async {
+    final first = Completer<bool>();
+    final sent = <String>[];
+    final state = PluginDraftController()
+      ..setHandler((a) async {
+        sent.add(a.id);
+        return a.id == 'first' ? first.future : true;
+      });
+    addTearDown(state.dispose);
+    const button = PluginAction(id: 'first', source: PluginActionSource.button, path: 'view');
+    final a = state.invoke(button);
+    // The very same intent, before the Host has answered: a double tap.
+    final b = state.invoke(button);
+    expect(sent, ['first']);
+    first.complete(true);
+    await tester.pump();
+    expect(await Future.wait([a, b]), [true, false], reason: 'the second tap is dropped, not queued');
+    expect(sent, ['first']);
+  });
+
   testWidgets('different explicit buttons on one component are not coalesced', (tester) async {
     final first = Completer<bool>();
     final sent = <String>[];

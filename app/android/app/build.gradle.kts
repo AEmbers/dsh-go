@@ -218,8 +218,10 @@ if (sideBuild) {
         suffix.set(sideSuffix)
         outputDir.set(layout.buildDirectory.dir("generated/side-res"))
     }
-    // Generated resources sit above main's; only release builds may be side builds.
-    androidComponents.onVariants(androidComponents.selector().withBuildType("release")) { variant ->
+    // Generated resources sit above main's. Debug and release side builds both
+    // need the rewritten shortcuts, or a long-press would still target the
+    // released applicationId.
+    androidComponents.onVariants(androidComponents.selector().all()) { variant ->
         variant.sources.res?.addGeneratedSourceDirectory(sideShortcuts, SideShortcuts::outputDir)
     }
 }

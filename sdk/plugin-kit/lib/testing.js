@@ -177,10 +177,14 @@ export function createTestHost(options = {}) {
 
   /** A minimal cordis-like context. */
   function makeCtx(extra = {}) {
+    const lookup = (name) => (name === 'dshGo' && options.bridge !== false ? dshGo : (services[name] ?? extra[name]))
     const ctx = {
       ...services,
       ...extra,
-      get: (name) => (name === 'dshGo' && options.bridge !== false ? dshGo : services[name]),
+      get: lookup,
+      // Real cordis exposes `ctx.reflect.get(name)` next to `ctx.get(name)`; a plugin written
+      // against that form would otherwise die here on an undefined `reflect`.
+      reflect: { get: lookup },
       inject(deps, callback) {
         const names = Array.isArray(deps) ? deps : Object.keys(deps ?? {})
         const missing = names.filter((n) => !has(n))

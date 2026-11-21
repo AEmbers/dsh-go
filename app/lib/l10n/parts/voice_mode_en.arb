@@ -1,0 +1,129 @@
+{
+  "vmodeTitle": "Read aloud",
+  "vmodeNotServed": "This host does not have the voice mode plugin",
+  "vmodeNotEnabled": "The voice mode plugin is off",
+  "vmodeEnabling": "Enabling…",
+  "vmodeEnable": "Enable voice mode",
+  "vmodeOff": "Voice off",
+  "vmodeListening": "Listening",
+  "vmodeThinking": "Thinking",
+  "vmodeSpeaking": "Speaking",
+  "vmodeBusy": "Working",
+  "vmodeHeldByOther": "Another chat holds the microphone",
+  "vmodeDegraded": "The live feed dropped; falling back to polling",
+  "vmodeReconnecting": "Reconnecting the voice feed",
+  "vmodeStartListening": "Speak",
+  "vmodeStopListening": "Stop",
+  "vmodeInterrupt": "Interrupt",
+  "vmodeReadAloud": "Read aloud",
+  "vmodeReadAloudVoice": "Voice turns only",
+  "vmodeReadAloudAlways": "Every reply",
+  "vmodeReadAloudOff": "Never",
+  "vmodeCaptions": "Captions",
+  "vmodeStatusBar": "Status bar",
+  "vmodeShowCaptions": "Show captions",
+  "vmodeShowStatusBar": "Show the status bar",
+  "vmodeTrigger": "Trigger",
+  "vmodeTriggerToggle": "Tap to start, tap to finish",
+  "vmodeTriggerHold": "Hold to talk",
+  "vmodeTriggerOnce": "One phrase only",
+  "vmodeSettings": "Voice settings",
+  "vmodeSettingsManaged": "dsh manages these settings; change them in the settings panel",
+  "vmodeSettingsRejected": "The plugin refused that setting",
+  "vmodeSettingsSaved": "Saved",
+  "vmodeSettingsFailed": "That setting did not save",
+  "vmodeEngine": "Engine",
+  "vmodeEngineEdge": "Edge cloud",
+  "vmodeEngineKokoro": "Kokoro local",
+  "vmodeEngineVits": "VITS local",
+  "vmodeVoice": "Voice",
+  "vmodeRate": "Rate",
+  "vmodeRateValue": "{rate}×",
+  "@vmodeRateValue": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      }
+    }
+  },
+  "vmodeBargeIn": "Interrupt by",
+  "vmodeBargeInAuto": "Automatic",
+  "vmodeBargeInManual": "Manual",
+  "vmodeBargeInDetect": "Detected speech",
+  "vmodeSilence": "End of speech",
+  "vmodeSilenceValue": "{ms} ms",
+  "@vmodeSilenceValue": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeIdleTimeout": "Idle hang-up",
+  "vmodeIdleTimeoutValue": "{minutes} min",
+  "@vmodeIdleTimeoutValue": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeModelsReady": "Models ready",
+  "vmodeModelsNotReady": "Models not ready",
+  "vmodeModelsAsr": "Recognition model",
+  "vmodeModelsTts": "Speech model",
+  "vmodeModelsRetry": "Retry loading models",
+  "vmodeModelsDownloading": "Downloading {file}: {percent}%",
+  "@vmodeModelsDownloading": {
+    "placeholders": {
+      "file": {
+        "type": "String"
+      },
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeEngineStruggling": "Speech keeps failing; the cloud may be unreachable",
+  "vmodePreview": "Preview",
+  "vmodePreviewFailed": "The preview failed",
+  "vmodePreviewNetwork": "The preview cannot reach the cloud",
+  "vmodePreviewEngine": "The speech engine failed",
+  "vmodePreviewText": "This text cannot be spoken",
+  "vmodePreviewUnknown": "The preview failed for an unknown reason",
+  "vmodeVoiceListFailed": "Could not read the voice list",
+  "vmodeDisabled": "Voice is switched off in this configuration",
+  "vmodeUnknownSession": "That chat no longer exists",
+  "vmodeLatencyFirstToken": "first token",
+  "vmodeLatencyFirstSentence": "first sentence",
+  "vmodeLatencyValue": "{stage}: {ms} ms",
+  "@vmodeLatencyValue": {
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      },
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "vmodeToolRunning": "Running {name}",
+  "@vmodeToolRunning": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "vmodeAsrFailed": "Recognition failed",
+  "vmodeTtsSkipped": "Speech skipped: {text}",
+  "@vmodeTtsSkipped": {
+    "placeholders": {
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "vmodeCatalogTitle": "Voice and reading",
+  "vmodeCatalogSummary": "Turn reading and captions on or off, pick the trigger, engine and voice, and reload the speech models."
+}

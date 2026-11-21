@@ -12,8 +12,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 String? _node() {
-  for (final dir in (Platform.environment['PATH'] ?? '').split(':')) {
-    if (dir.isNotEmpty && File('$dir/node').existsSync()) return '$dir/node';
+  final sep = Platform.isWindows ? ';' : ':';
+  for (final dir in (Platform.environment['PATH'] ?? '').split(sep)) {
+    if (dir.isEmpty) continue;
+    for (final name in ['node.exe', 'node']) {
+      final candidate = '$dir${Platform.pathSeparator}$name';
+      if (File(candidate).existsSync()) return candidate;
+    }
   }
   return null;
 }

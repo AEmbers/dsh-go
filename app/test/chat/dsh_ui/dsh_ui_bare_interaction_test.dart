@@ -74,17 +74,24 @@ void main() {
     }
   }
 
-  testWidgets('genuine genui under a dsh-ui fence remains read-only in ChatScreen', (tester) async {
+  testWidgets('a genui button in a dsh-ui fence sends the control action', (tester) async {
     const source = '{"title":"构建报告","items":[{"type":"button","label":"重跑","action":"rerun"}]}';
     try {
       final harness = await _mount(tester, _message(source, true));
       expect(find.byType(DshUiDialectCard), findsOneWidget);
       expect(find.byType(DshUiCard), findsNothing);
-      final fallback = find.descendant(of: find.byType(DshUiDialectCard), matching: find.textContaining('在网页版查看'));
-      expect(fallback, findsOneWidget);
-      await tester.tap(fallback);
+      // The control is drawn where it is, not as a 「在网页版查看」 tag.
+      final button = find.descendant(of: find.byType(DshUiDialectCard), matching: find.text('重跑'));
+      expect(button, findsOneWidget);
+      await tester.tap(button);
       await pumpFrames(tester);
-      expect(harness.controllers['s1']!.sent, isEmpty);
+      expect(harness.controllers['s1']!.sent, hasLength(1));
+      final sent = harness.controllers['s1']!.sent.single;
+      expect(sent, startsWith('[genui-action] rerun '));
+      expect(sent, contains('"type":"button"'));
+      expect(sent, contains('"label":"重跑"'));
+      // An action is a new task: it queues behind the turn, it does not steer it.
+      expect(harness.controllers['s1']!.sentModes.single, SendMode.queue);
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

@@ -39,7 +39,14 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('hosted-');
       addTearDown(() => dir.delete(recursive: true));
       final file = File('${dir.path}/blob')..writeAsBytesSync(sealHosted(utf8.encode(text), key));
-      final result = await Process.run('node', ['$_fixtures/open_blob.mjs', file.path, encodeHostedKey(key)]);
+      // Node writes UTF-8; without stdoutEncoding Dart decodes with the system
+      // code page (cp936 here), which mangles the non-ASCII payload text.
+      final result = await Process.run(
+        'node',
+        ['$_fixtures/open_blob.mjs', file.path, encodeHostedKey(key)],
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
       expect(result.exitCode, 0, reason: '${result.stderr}');
       final out = jsonDecode(result.stdout as String) as Map<String, Object?>;
       expect(out['text'], text);
