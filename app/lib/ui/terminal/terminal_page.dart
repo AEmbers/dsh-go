@@ -36,9 +36,12 @@ import 'terminal_screen.dart';
 /// Leaving the page only disconnects: the terminal keeps running in the engine
 /// and reattaches on return. Only closing a tab ends its process.
 class TerminalPage extends ConsumerStatefulWidget {
-  const TerminalPage({super.key, required this.sessionId});
+  const TerminalPage({super.key, required this.sessionId, this.embedded = false});
 
   final String sessionId;
+
+  /// Inside the conversation column. There is no route to pop.
+  final bool embedded;
 
   static Route<void> route(String sessionId) =>
       MaterialPageRoute<void>(builder: (_) => TerminalPage(sessionId: sessionId));
@@ -215,6 +218,7 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
                 children: [
                   _TopBar(
                     subtitle: _directoryName(cwd),
+                    showBack: !widget.embedded,
                     onMore: selected == null ? null : () => unawaited(_showActions(selected)),
                   ),
                   if (state.tabs.isNotEmpty)
@@ -257,10 +261,11 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
 /// Back · 「终端」 over the directory · more. The two round keys mirror each
 /// other so the title stays centred.
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.subtitle, required this.onMore});
+  const _TopBar({required this.subtitle, required this.onMore, this.showBack = true});
 
   final String subtitle;
   final VoidCallback? onMore;
+  final bool showBack;
 
   @override
   Widget build(BuildContext context) {
@@ -273,12 +278,15 @@ class _TopBar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: TerminalPage.gutter),
           child: Row(
             children: [
-              GlassIconButton(
-                key: const ValueKey('terminal-back'),
-                icon: AppIcons.back,
-                tooltip: l10n.commonBack,
-                onPressed: () => Navigator.of(context).maybePop(),
-              ),
+              if (!showBack)
+                const SizedBox(width: 44)
+              else
+                GlassIconButton(
+                  key: const ValueKey('terminal-back'),
+                  icon: AppIcons.back,
+                  tooltip: l10n.commonBack,
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(

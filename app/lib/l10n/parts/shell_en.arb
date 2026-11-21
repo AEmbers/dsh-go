@@ -273,5 +273,11 @@
         "type": "String"
       }
     }
-  }
+  },
+  "shellListHistory": "History",
+  "shellWorkbenchRefresh": "Refresh chats",
+  "shellWorkbenchChat": "Chat",
+  "shellWorkbenchCli": "CLI",
+  "shellWorkbenchCliNeedsSession": "The terminal belongs to one chat. Open or start a chat, then use it here.",
+  "shellWorkbenchCloseTab": "Close tab"
 }

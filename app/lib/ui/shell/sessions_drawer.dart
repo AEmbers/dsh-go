@@ -53,6 +53,7 @@ import 'drawer/drawer_actions.dart';
 import 'drawer/drawer_destination.dart';
 import 'drawer/archive_notice.dart';
 import 'drawer/drawer_filter_bar.dart';
+import 'drawer/drawer_scope_bar.dart';
 import 'drawer/drawer_list.dart';
 import 'drawer/selection_bars.dart';
 import 'drawer/session_deletion.dart';
@@ -201,6 +202,9 @@ class SessionsDrawer extends ConsumerWidget {
           ],
         ),
       ),
+      // The phone drawer already has the status capsules. The running /
+      // history split is the wide sidebar, where the list stays on screen.
+      if (drawerMotion == null) const DrawerScopeBar(),
       SmoothSize(
         duration: AppMotion.of(context, AppMotion.standard),
         curve: AppMotion.std,

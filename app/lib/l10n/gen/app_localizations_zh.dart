@@ -20093,6 +20093,24 @@ class L10nZh extends L10n {
   }
 
   @override
+  String get shellListHistory => '历史';
+
+  @override
+  String get shellWorkbenchRefresh => '刷新会话和对话';
+
+  @override
+  String get shellWorkbenchChat => '对话';
+
+  @override
+  String get shellWorkbenchCli => '命令行';
+
+  @override
+  String get shellWorkbenchCliNeedsSession => '命令行属于某一次对话。先打开或新建对话，再用这里的终端。';
+
+  @override
+  String get shellWorkbenchCloseTab => '关闭标签';
+
+  @override
   String get speechReadAloud => '朗读';
 
   @override

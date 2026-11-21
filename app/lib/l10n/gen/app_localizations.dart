@@ -36936,6 +36936,42 @@ abstract class L10n {
   /// **'在「{path}」里调整'**
   String shellQuickPanelHint(String path);
 
+  /// No description provided for @shellListHistory.
+  ///
+  /// In zh, this message translates to:
+  /// **'历史'**
+  String get shellListHistory;
+
+  /// No description provided for @shellWorkbenchRefresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新会话和对话'**
+  String get shellWorkbenchRefresh;
+
+  /// No description provided for @shellWorkbenchChat.
+  ///
+  /// In zh, this message translates to:
+  /// **'对话'**
+  String get shellWorkbenchChat;
+
+  /// No description provided for @shellWorkbenchCli.
+  ///
+  /// In zh, this message translates to:
+  /// **'命令行'**
+  String get shellWorkbenchCli;
+
+  /// No description provided for @shellWorkbenchCliNeedsSession.
+  ///
+  /// In zh, this message translates to:
+  /// **'命令行属于某一次对话。先打开或新建对话，再用这里的终端。'**
+  String get shellWorkbenchCliNeedsSession;
+
+  /// No description provided for @shellWorkbenchCloseTab.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭标签'**
+  String get shellWorkbenchCloseTab;
+
   /// No description provided for @speechReadAloud.
   ///
   /// In zh, this message translates to:

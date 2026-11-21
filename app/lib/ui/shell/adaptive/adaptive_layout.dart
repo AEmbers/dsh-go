@@ -200,11 +200,26 @@ class AdaptiveLayout {
 
   bool get isExpanded => windowClass == WindowClass.expanded;
 
+  /// Width of the conversation list when it is unfolded.
+  ///
+  /// With 对话详情 open this stays at the phone-drawer width, so the
+  /// three-column fit (list, 600 of chat, panel) does not move. With the
+  /// panel away it grows toward a third of the window, never narrower than
+  /// that drawer and never so wide that the chat loses its 600.
+  double get unfoldedSidebarWidth {
+    if (panelShown) return AdaptiveMetrics.sidebarWidth;
+    final inner = math.max(0.0, window.width - padding.left - padding.right);
+    final third = (inner * 0.33 / AdaptiveMetrics.panelStep).roundToDouble() * AdaptiveMetrics.panelStep;
+    final room = inner - AdaptiveMetrics.chatComfort;
+    if (room < AdaptiveMetrics.sidebarWidth) return AdaptiveMetrics.sidebarWidth;
+    return third.clamp(AdaptiveMetrics.sidebarWidth, room);
+  }
+
   /// The left column's content width.
   double get leftWidth => switch (left) {
     LeftPane.none => 0,
     LeftPane.rail => AdaptiveMetrics.railWidth,
-    LeftPane.sidebar => AdaptiveMetrics.sidebarWidth,
+    LeftPane.sidebar => unfoldedSidebarWidth,
   };
 
   /// The left column on screen, the inset it covers included.

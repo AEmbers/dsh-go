@@ -193,7 +193,7 @@ class _AdaptiveScaffoldState extends State<AdaptiveScaffold> with TickerProvider
     final shown = _panel.value;
 
     final railExtent = AdaptiveMetrics.railWidth + inset.left;
-    final sidebarExtent = AdaptiveMetrics.sidebarWidth + inset.left;
+    final sidebarExtent = layout.unfoldedSidebarWidth + inset.left;
     final leftExtent = expanded ? lerpDouble(railExtent, sidebarExtent, side)! : 0.0;
     final panelFull = _panelWidth + inset.right;
     final panelExtent = expanded && _panelChild != null ? panelFull * shown : 0.0;
@@ -206,85 +206,96 @@ class _AdaptiveScaffoldState extends State<AdaptiveScaffold> with TickerProvider
     final chatRight = expanded ? math.max(panelExtent, inset.right) : mirrored;
     final chatWidth = (window.width - chatLeft - chatRight).clamp(0.0, window.width);
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // The chat. Always the first child, always the same subtree.
-        Positioned(
-          left: chatLeft,
-          top: 0,
-          bottom: 0,
-          width: chatWidth,
-          child: _Column(
-            media: media,
-            origin: Offset(chatLeft, 0),
-            area: window,
+    return ColoredBox(
+      color: expanded ? _workbenchWash(Theme.of(context)) : Colors.transparent,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // The chat. Always the first child, always the same subtree.
+          Positioned(
+            left: chatLeft,
+            top: 0,
+            bottom: 0,
             width: chatWidth,
-            leftEdge: false,
-            rightEdge: false,
-            child: widget.body,
+            child: _Column(
+              media: media,
+              origin: Offset(chatLeft, 0),
+              area: window,
+              width: chatWidth,
+              leftEdge: false,
+              rightEdge: false,
+              child: widget.body,
+            ),
           ),
-        ),
-        // 对话详情: full width while it slides, its left edge with the chat's.
-        Positioned(
-          left: window.width - panelExtent,
-          top: 0,
-          bottom: 0,
-          width: panelFull,
-          child: panelExtent == 0
-              ? const SizedBox.shrink()
-              : _PanelColumn(
-                  media: media,
-                  origin: Offset(window.width - panelExtent, 0),
-                  area: window,
-                  width: _panelWidth,
-                  child: _panelChild!,
-                ),
-        ),
-        // The rail fades as the sidebar slides over it.
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: railExtent,
-          child: !expanded || widget.rail == null || side == 1
-              ? const SizedBox.shrink()
-              : IgnorePointer(
-                  ignoring: side > 0.5,
-                  child: Opacity(
-                    opacity: (1 - side * 2).clamp(0.0, 1.0),
-                    child: _Column(
-                      media: media,
-                      origin: Offset.zero,
-                      area: window,
-                      width: railExtent,
-                      leftEdge: true,
-                      rightEdge: false,
-                      child: widget.rail!,
+          // 对话详情: full width while it slides, its left edge with the chat's.
+          Positioned(
+            left: window.width - panelExtent,
+            top: 0,
+            bottom: 0,
+            width: panelFull,
+            child: panelExtent == 0
+                ? const SizedBox.shrink()
+                : _PanelColumn(
+                    media: media,
+                    origin: Offset(window.width - panelExtent, 0),
+                    area: window,
+                    width: _panelWidth,
+                    child: _panelChild!,
+                  ),
+          ),
+          // The rail fades as the sidebar slides over it.
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: railExtent,
+            child: !expanded || widget.rail == null || side == 1
+                ? const SizedBox.shrink()
+                : IgnorePointer(
+                    ignoring: side > 0.5,
+                    child: Opacity(
+                      opacity: (1 - side * 2).clamp(0.0, 1.0),
+                      child: _Column(
+                        media: media,
+                        origin: Offset.zero,
+                        area: window,
+                        width: railExtent,
+                        leftEdge: true,
+                        rightEdge: false,
+                        child: widget.rail!,
+                      ),
                     ),
                   ),
-                ),
-        ),
-        Positioned(
-          left: (side - 1) * sidebarExtent,
-          top: 0,
-          bottom: 0,
-          width: sidebarExtent,
-          child: !expanded || widget.sidebar == null || side == 0
-              ? const SizedBox.shrink()
-              : _Column(
-                  media: media,
-                  origin: Offset((side - 1) * sidebarExtent, 0),
-                  area: window,
-                  width: sidebarExtent,
-                  leftEdge: true,
-                  rightEdge: false,
-                  child: RepaintBoundary(child: widget.sidebar),
-                ),
-        ),
-      ],
+          ),
+          Positioned(
+            left: (side - 1) * sidebarExtent,
+            top: 0,
+            bottom: 0,
+            width: sidebarExtent,
+            child: !expanded || widget.sidebar == null || side == 0
+                ? const SizedBox.shrink()
+                : _Column(
+                    media: media,
+                    origin: Offset((side - 1) * sidebarExtent, 0),
+                    area: window,
+                    width: sidebarExtent,
+                    leftEdge: true,
+                    rightEdge: false,
+                    child: RepaintBoundary(child: widget.sidebar),
+                  ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+/// Light blue-gray page behind the wide columns. Dark mode stays on the
+/// theme surface so a chosen accent still reads.
+Color _workbenchWash(ThemeData theme) {
+  final scheme = theme.colorScheme;
+  final base = theme.brightness == Brightness.light ? const Color(0xFFE7EEF5) : scheme.surface;
+  return Color.alphaBlend(scheme.primary.withValues(alpha: 0.06), base);
 }
 
 /// One column: its own [MediaQuery] (size, and the system insets only on the

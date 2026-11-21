@@ -12001,6 +12001,12 @@
       }
     }
   },
+  "shellListHistory": "历史",
+  "shellWorkbenchRefresh": "刷新会话和对话",
+  "shellWorkbenchChat": "对话",
+  "shellWorkbenchCli": "命令行",
+  "shellWorkbenchCliNeedsSession": "命令行属于某一次对话。先打开或新建对话，再用这里的终端。",
+  "shellWorkbenchCloseTab": "关闭标签",
   "speechReadAloud": "朗读",
   "speechReadAloudStop": "停止朗读",
   "speechReadSection": "朗读",

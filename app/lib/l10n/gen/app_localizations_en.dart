@@ -21240,6 +21240,25 @@ class L10nEn extends L10n {
   }
 
   @override
+  String get shellListHistory => 'History';
+
+  @override
+  String get shellWorkbenchRefresh => 'Refresh chats';
+
+  @override
+  String get shellWorkbenchChat => 'Chat';
+
+  @override
+  String get shellWorkbenchCli => 'CLI';
+
+  @override
+  String get shellWorkbenchCliNeedsSession =>
+      'The terminal belongs to one chat. Open or start a chat, then use it here.';
+
+  @override
+  String get shellWorkbenchCloseTab => 'Close tab';
+
+  @override
   String get speechReadAloud => 'Read aloud';
 
   @override
