@@ -430,6 +430,48 @@ class DrawerFilterController extends Notifier<DrawerFilter> {
 
 final drawerFilterProvider = NotifierProvider<DrawerFilterController, DrawerFilter>(DrawerFilterController.new);
 
+/// Which pile the sidebar is looking at.
+///
+/// 运行中 is the host's `running` flag. 历史 is every other conversation.
+/// The status capsules below apply inside the pile.
+enum DrawerListScope {
+  running,
+  history;
+
+  String get label => switch (this) {
+    running => appL10n.commonRunning,
+    history => appL10n.shellListHistory,
+  };
+}
+
+class DrawerListScopeController extends Notifier<DrawerListScope> {
+  @override
+  DrawerListScope build() {
+    // Another host: back to the pile that holds finished conversations.
+    ref.watch(activeHostProvider);
+    return DrawerListScope.history;
+  }
+
+  void set(DrawerListScope scope) => state = scope;
+}
+
+final drawerListScopeProvider = NotifierProvider<DrawerListScopeController, DrawerListScope>(
+  DrawerListScopeController.new,
+);
+
+/// Conversations that belong in [scope]. Null keeps the list unchanged.
+/// [keepId] stays visible either way, so the open conversation does not
+/// disappear when its pile is the other one.
+List<SessionSummary> sessionsInListScope(List<SessionSummary> sessions, DrawerListScope? scope, {String? keepId}) => [
+  for (final session in sessions)
+    if (scope == null || session.sessionId == keepId || _inListScope(session, scope)) session,
+];
+
+bool _inListScope(SessionSummary session, DrawerListScope scope) => switch (scope) {
+  DrawerListScope.running => session.running,
+  DrawerListScope.history => !session.running,
+};
+
 /// Multi-select: null when off, else the chosen conversation ids.
 class DrawerSelectionController extends Notifier<Set<String>?> {
   @override
@@ -673,10 +715,13 @@ List<DrawerBlock> drawerBlocks({
   required Map<String, DateTime> createdAt,
   required DateTime now,
   bool scoped = false,
+  DrawerListScope? listScope,
+  String? keepId,
 }) {
+  final visible = sessionsInListScope(sessions, listScope, keepId: keepId);
   DateTime keyOf(SessionSummary s) =>
       view.sort == DrawerSort.created ? (createdAt[s.sessionId] ?? s.updatedAt) : s.updatedAt;
-  final sorted = [...sessions]
+  final sorted = [...visible]
     ..sort((a, b) {
       final byKey = keyOf(b).compareTo(keyOf(a));
       return byKey != 0 ? byKey : a.sessionId.compareTo(b.sessionId);
@@ -758,5 +803,7 @@ List<DrawerBlock>? watchDrawerBlocks(WidgetRef ref, {DateTime? now}) {
     createdAt: view.sort == DrawerSort.created ? ref.watch(sessionCreatedProvider) : const {},
     now: now ?? ref.watch(drawerClockProvider)(),
     scoped: scope.scoped,
+    listScope: ref.watch(drawerListScopeProvider),
+    keepId: ref.watch(currentSessionProvider),
   );
 }

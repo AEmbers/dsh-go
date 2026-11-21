@@ -125,8 +125,8 @@ void main() {
       expect(folded, open);
       // The sidebar fits again; the header's ≡ folds it.
       expect(find.byType(SessionsDrawer), findsOneWidget);
-      expect(tester.getRect(find.byType(SessionsDrawer)).width, _near(320));
-      expect(_key(tester, 'chat-menu').left, _near(320 + 12));
+      expect(tester.getRect(find.byType(SessionsDrawer)).width, _near(424));
+      expect(_key(tester, 'chat-menu').left, _near(424 + 12));
 
       await tester.tap(find.byKey(const ValueKey('chat-panel-key')));
       await pumpFrames(tester, 8);
@@ -184,7 +184,7 @@ void main() {
       await _pumpHome(tester, session: null);
       expect(find.byType(SessionDetailPage), findsNothing);
       expect(find.byKey(const ValueKey('chat-panel-key')), findsNothing);
-      expect(tester.getRect(find.byType(SessionsDrawer)).width, _near(320));
+      expect(tester.getRect(find.byType(SessionsDrawer)).width, _near(424));
     });
   });
 

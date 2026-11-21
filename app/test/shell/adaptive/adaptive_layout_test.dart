@@ -100,7 +100,9 @@ void main() {
       expect(layout.panelShown, isFalse);
       expect(layout.panelAvailable, isTrue);
       expect(layout.left, LeftPane.sidebar);
-      expect(layout.chatRect, const Rect.fromLTRB(320, 0, 1280, 800));
+      // A third of the window, on the 4dp grid, and the chat keeps 600.
+      expect(layout.unfoldedSidebarWidth, 424);
+      expect(layout.chatRect, const Rect.fromLTRB(424, 0, 1280, 800));
       expect(layout.menuAction, MenuAction.collapse);
     });
 
@@ -160,8 +162,9 @@ void main() {
       const cutout = EdgeInsets.only(left: 32);
       final layout = _resolve(1280, padding: cutout, panelOpen: false);
       expect(layout.left, LeftPane.sidebar);
-      expect(layout.leftExtent, 320 + 32);
-      expect(layout.chatRect.left, 352);
+      expect(layout.unfoldedSidebarWidth, 412);
+      expect(layout.leftExtent, 412 + 32);
+      expect(layout.chatRect.left, 444);
     });
   });
 
