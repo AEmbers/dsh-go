@@ -27,7 +27,6 @@ import 'memory_card.dart';
 import 'working_folder_sheet.dart';
 import 'room_relay_limit_sheet.dart';
 import 'room_chat_page.dart' show GroupApprovalCard;
-import 'room_goal_board.dart';
 
 class RoomDetailsPage extends ConsumerWidget {
   const RoomDetailsPage({super.key, required this.roomId});
@@ -130,13 +129,8 @@ class RoomDetailsPage extends ConsumerWidget {
     final status = ref.watch(dsBotProvider);
     final team = status.team;
     final room = team?.room(roomId);
-    // A DS Bot from before the mobile API still answers `state`; the group it
-    // lists is read here, with the parts that need the newer API left out.
-    // One that answered `hello` and then lost its feed stays blocked: it
-    // announced a mobile API, so a missing one is a real fault there.
     final mobileUnavailable =
-        status.availability == DsBotAvailability.missing ||
-        (status.availability == DsBotAvailability.outdated && status.hello != null);
+        status.availability == DsBotAvailability.missing || status.availability == DsBotAvailability.outdated;
     if (team == null || room == null || mobileUnavailable) {
       return AppPage.list(
         title: l10n.botsGroupChat,
@@ -148,8 +142,6 @@ class RoomDetailsPage extends ConsumerWidget {
     final dsh = DshColors.of(context);
     final writable = status.readOnly == null;
     final scope = BotActionScope(ref, roomId: room.id);
-    // The goal comes with a page of the group chat, not with `state`.
-    final goal = ref.watch(roomChatProvider(room.id).select((chat) => chat.goal));
     final members = [
       for (final id in [if (room.admin != null) room.admin!, ...room.members.where((m) => m != room.admin)])
         ?team.bot(id),
@@ -326,7 +318,6 @@ class RoomDetailsPage extends ConsumerWidget {
             ),
             gap,
             BotMemoryCard(roomId: room.id),
-            if (goal != null) ...[gap, RoomGoalBoard(goal: goal)],
             if (writable) ...[
               gap,
               Center(

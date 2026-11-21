@@ -28,7 +28,6 @@ import 'bot_chat_page.dart';
 import 'bot_format.dart';
 import 'bot_mention.dart';
 import 'room_approval_action.dart';
-import 'room_goal_board.dart';
 import 'room_details_page.dart';
 import 'room_full_text_sheet.dart';
 
@@ -154,13 +153,8 @@ class _RoomChatPageState extends ConsumerState<RoomChatPage> {
     final continueTarget = BotActionScope(ref, roomId: widget.roomId);
     final fullTextScope = BotActionScope(ref, roomId: widget.roomId);
     final sendTarget = BotActionScope(ref, roomId: widget.roomId);
-    // A DS Bot from before the mobile API still answers `state`, so a team it
-    // has is read here as usual; only a host with no DS Bot at all is a dead
-    // end. A host that answered `hello` and then lost its feed stays blocked:
-    // it announced a mobile API, so a missing one is a real fault there.
     final mobileUnavailable =
-        status.availability == DsBotAvailability.missing ||
-        (status.availability == DsBotAvailability.outdated && status.hello != null);
+        status.availability == DsBotAvailability.missing || status.availability == DsBotAvailability.outdated;
     if (team == null || room == null || mobileUnavailable) {
       return AppPage.list(
         title: l10n.botsGroupChat,
@@ -262,11 +256,6 @@ class _RoomChatPageState extends ConsumerState<RoomChatPage> {
               ),
             ),
       bottom: [
-        if (chat.goalsKnown && chat.goal != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: RoomGoalCard(goal: chat.goal!),
-          ),
         if (room.paused)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),

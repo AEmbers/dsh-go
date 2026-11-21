@@ -1,16 +1,25 @@
 /// `@nanmicoder/dsh-agent-teams` — the team activity channel of a dsh-go Host.
 ///
-/// The plugin owns its own state files and serves them through three Fetch
-/// routes registered by `dsh-agent-teams/lib/index.js`:
+/// Checked against the published plugin
+/// [NanmiCoder/dsh-agent-teams](https://github.com/NanmiCoder/dsh-agent-teams)
+/// tag `v0.1.31` (`d80316b23d37be49a8521108a20855086a128a3d`, 2026-11-18;
+/// verified 2026-11-21). The AEmbers forks of this package are older and are
+/// not the release this client follows. The settings-schema fixture shipped
+/// with dsh-go (`nanmicoder-dsh-agent-teams-0.1.27.json`) is the generic
+/// plugin-config snapshot, not this HTTP contract.
 ///
-/// * `GET  /plugins/dsh-agent-teams/state`   (`:185`) — every live team under
-///   the workspace state roots, or one captain's teams with `?session=`, or
-///   the archived ones with `?archived=1`, without editor-only text with
+/// The plugin owns its own state files and serves them through three Fetch
+/// routes registered by `lib/index.js` of that tag:
+///
+/// * `GET  /plugins/dsh-agent-teams/state` — every live team under the
+///   workspace state roots, or one captain's teams with `?session=`, or the
+///   archived ones with `?archived=1`, without editor-only text with
 ///   `?summary=1`. Answered with a strong `ETag`; a second read with
 ///   `if-none-match` answers `304`.
-/// * `POST /plugins/dsh-agent-teams/halt`    (`:205`) — `{sessionId, teamId}`.
-/// * `POST /plugins/dsh-agent-teams/plan`    (`:261`) — `{sessionId, teamId,
-///   action, …}` for the seven staged-plan actions.
+/// * `POST /plugins/dsh-agent-teams/halt` — `{sessionId, teamId}`.
+/// * `POST /plugins/dsh-agent-teams/plan` — `{sessionId, teamId, action, …}`
+///   for the seven staged-plan actions (`approve`, `continue`, `discard`,
+///   `update_member`, `update_task`, `add_task`, `remove_task`).
 ///
 /// This is **not** the official experimental Agent Teams bundle
 /// (`@deepseek-ai/dsh-experimental-agent-team-profile`), whose roster arrives

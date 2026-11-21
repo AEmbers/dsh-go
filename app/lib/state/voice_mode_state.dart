@@ -57,6 +57,7 @@ class VoiceModeSnapshot {
     this.lastLatencyStage,
     this.degraded = false,
     this.serving = true,
+    this.cloudKeyMissing = false,
     this.error,
   });
 
@@ -93,6 +94,9 @@ class VoiceModeSnapshot {
   /// False once the host answers 404: the plugin is not installed or is off.
   final bool serving;
 
+  /// `v0.7.44` `/config` says the cloud TTS engine needs a key and none is set.
+  final bool cloudKeyMissing;
+
   /// The last transport failure, while a stale snapshot is still worth showing.
   final Object? error;
 
@@ -119,6 +123,7 @@ class VoiceModeSnapshot {
     String? lastLatencyStage,
     bool? degraded,
     bool? serving,
+    bool? cloudKeyMissing,
     Object? error,
     bool clearError = false,
   }) => VoiceModeSnapshot(
@@ -133,6 +138,7 @@ class VoiceModeSnapshot {
     lastLatencyStage: lastLatencyStage ?? this.lastLatencyStage,
     degraded: degraded ?? this.degraded,
     serving: serving ?? this.serving,
+    cloudKeyMissing: cloudKeyMissing ?? this.cloudKeyMissing,
     error: clearError ? null : (error ?? this.error),
   );
 }
@@ -172,8 +178,7 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
 
   /// Whether [client] may still write: the same host [build] wired, and the
   /// generation [build] handed out is still the current one.
-  bool _live(DshClient client, int generation) =>
-      !_disposed && generation == _generation && identical(client, _owner);
+  bool _live(DshClient client, int generation) => !_disposed && generation == _generation && identical(client, _owner);
 
   @override
   VoiceModeSnapshot build() {
@@ -247,6 +252,7 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
         models: models,
         display: display,
         mode: mode,
+        cloudKeyMissing: VoiceCloudKey.fromConfig(config).missing,
         serving: true,
         clearError: true,
       );
@@ -328,7 +334,11 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
       try {
         final config = await client.readVoiceModeConfig();
         if (!_live(client, generation)) return;
-        state = state.copyWith(mode: _modeOf(config), display: _displayOf(config));
+        state = state.copyWith(
+          mode: _modeOf(config),
+          display: _displayOf(config),
+          cloudKeyMissing: VoiceCloudKey.fromConfig(config).missing,
+        );
       } catch (_) {
         // Keep the old values; the reconnect timer is the real retry.
       }
@@ -413,7 +423,9 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
       // The intent, kept for the reconnect path: `null` counts too, so a page
       // that has been left does not come back to life on its own.
       _wantedFocus = sessionId;
-      state = state.copyWith(focus: VoiceModeFocus(sessionId: sessionId, tabId: tabId));
+      state = state.copyWith(
+        focus: VoiceModeFocus(sessionId: sessionId, tabId: tabId),
+      );
     } catch (_) {
       // A closed session or a busy Host: the next turn re-syncs.
     }
@@ -428,7 +440,9 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
     try {
       final active = await client.toggleVoiceMode(sessionId: sessionId, on: on, tabId: _tabId);
       if (!_live(client, generation)) return false;
-      state = state.copyWith(mode: VoiceModeMode(active: active, ownerTabId: _tabId));
+      state = state.copyWith(
+        mode: VoiceModeMode(active: active, ownerTabId: _tabId),
+      );
       return active == null || active == sessionId;
     } catch (error) {
       if (_live(client, generation)) state = state.copyWith(error: error);
@@ -442,10 +456,7 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
     if (client == null) return;
     final generation = _generation;
     try {
-      await client.cancelVoiceMode(
-        sessionId: sessionId,
-        reason: interrupt ? 'interrupt' : null,
-      );
+      await client.cancelVoiceMode(sessionId: sessionId, reason: interrupt ? 'interrupt' : null);
     } catch (error) {
       if (_live(client, generation)) state = state.copyWith(error: error);
     }
@@ -506,8 +517,7 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
   }
 
   /// `toggle` / `hold` / `once`: how the microphone button behaves.
-  Future<VoiceSettingsWrite> setTrigger(VoiceModeTrigger mode) =>
-      updateSettings({'mode': mode.wire});
+  Future<VoiceSettingsWrite> setTrigger(VoiceModeTrigger mode) => updateSettings({'mode': mode.wire});
 
   /// Asks the Host to fetch the model that is missing. Slow (a download), so
   /// the state comes back through the feed instead of the reply.
@@ -527,9 +537,7 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
 /// Outcome of a settings write, so the page can say the right thing.
 enum VoiceSettingsWrite { saved, managedByDsh, rejected, failed }
 
-final voiceModeProvider = NotifierProvider.autoDispose<VoiceModeController, VoiceModeSnapshot>(
-  VoiceModeController.new,
-);
+final voiceModeProvider = NotifierProvider.autoDispose<VoiceModeController, VoiceModeSnapshot>(VoiceModeController.new);
 
 /// The turn state of one session, for the chat's own voice button.
 final voiceTurnProvider = Provider.autoDispose.family<VoiceTurnState, String>((ref, sessionId) {
@@ -546,7 +554,6 @@ final voiceModeServingProvider = Provider.autoDispose<bool>(
   (ref) => ref.watch(voiceModeProvider.select((s) => s.serving)),
 );
 
-
 /// Awaits [future] and answers null when it fails, for the parts of the panel
 /// that are worth showing even when one of their reads is missing.
 Future<Object?> _orNull(Future<Object?> future) async {
@@ -559,7 +566,13 @@ Future<Object?> _orNull(Future<Object?> future) async {
 
 /// Reads a JSON boolean the way the Host writes it (`true` / `false`, and the
 /// `"true"` form some settings files carry).
-bool? _asBool(Object? value) => value is bool ? value : value == 'true' ? true : value == 'false' ? false : null;
+bool? _asBool(Object? value) => value is bool
+    ? value
+    : value == 'true'
+    ? true
+    : value == 'false'
+    ? false
+    : null;
 
 /// Reads a JSON string, treating anything else as absent.
 String? _asString(Object? value) => value is String ? value : null;

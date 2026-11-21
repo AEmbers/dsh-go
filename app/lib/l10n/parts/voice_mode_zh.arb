@@ -125,5 +125,6 @@
     }
   },
   "vmodeCatalogTitle": "语音朗读",
-  "vmodeCatalogSummary": "开关朗读与字幕，切换触发方式、引擎与音色，重载语音模型。"
+  "vmodeCatalogSummary": "开关朗读与字幕，切换触发方式、引擎与音色，重载语音模型。",
+  "vmodeCloudKeyMissing": "云端朗读还没有密钥，请先在语音插件设置里填写"
 }

@@ -1,8 +1,14 @@
 /// `dsh-voice-mode` — speech in, speech out, captions, and its settings.
 ///
+/// Checked against the published plugin
+/// [qishuilalala/dsh-voice-mode](https://github.com/qishuilalala/dsh-voice-mode)
+/// tag `v0.7.44` (`5fed89473e41da541a51d40f319cad061ab4369b`, 2026-11-21).
+/// The AEmbers Rust fork is an older package of the same npm name and is not
+/// the release this client follows.
+///
 /// Everything the plugin exposes to a client lives under one prefix,
-/// `/voice-mode` (`BASE_PATH` in `dsh-voice-mode/lib/index.js:2917`). The
-/// prefix route itself answers a capability probe
+/// `/voice-mode` (`BASE_PATH` in `plugin/dsh-voice-mode/lib/index.js` of that
+/// tag). The prefix route itself answers a capability probe
 /// (`{ok, name, enabled, active}`), which is *not* a health check on the
 /// sub-routes: any unknown child path under it is swallowed by that prefix and
 /// answers the same JSON, so a `200` on `/voice-mode/whatever` proves nothing
@@ -932,6 +938,28 @@ class VoiceModeStream {
     final id = '$prefix-$micros-$noise';
     return id.length <= 64 ? id : id.substring(0, 64);
   }
+}
+
+/// Cloud-TTS key probe from `GET /voice-mode/config`.
+///
+/// `v0.7.44` (2026-11-20) sends [needsKey] and [keyPresent] so a client can
+/// say the cloud voice is missing its key before anyone opens the microphone.
+/// A plugin from before that field pair omits both; [missing] stays false.
+class VoiceCloudKey {
+  const VoiceCloudKey({required this.needsKey, required this.keyPresent});
+
+  static const unknown = VoiceCloudKey(needsKey: false, keyPresent: false);
+
+  static VoiceCloudKey fromConfig(Map<String, Object?>? config) {
+    if (config == null) return unknown;
+    return VoiceCloudKey(needsKey: config['ttsNeedsKey'] == true, keyPresent: config['ttsKeyPresent'] == true);
+  }
+
+  final bool needsKey;
+  final bool keyPresent;
+
+  /// The engine wants a cloud key and the host does not have one.
+  bool get missing => needsKey && !keyPresent;
 }
 
 // -----------------------------------------------------------------------------

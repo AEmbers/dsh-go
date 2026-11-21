@@ -6662,168 +6662,6 @@ abstract class L10n {
   /// **'连接已变化，请重新打开创建页面后再操作。'**
   String get botsCreationConnectionChanged;
 
-  /// No description provided for @botsGoalBoard.
-  ///
-  /// In zh, this message translates to:
-  /// **'群目标'**
-  String get botsGoalBoard;
-
-  /// No description provided for @botsGoalStageOf.
-  ///
-  /// In zh, this message translates to:
-  /// **'阶段 {current}/{count}'**
-  String botsGoalStageOf(int current, int count);
-
-  /// No description provided for @botsGoalPassedCount.
-  ///
-  /// In zh, this message translates to:
-  /// **'已过 {passed} 个阶段'**
-  String botsGoalPassedCount(int passed);
-
-  /// No description provided for @botsGoalObjective.
-  ///
-  /// In zh, this message translates to:
-  /// **'目标'**
-  String get botsGoalObjective;
-
-  /// No description provided for @botsGoalAcceptance.
-  ///
-  /// In zh, this message translates to:
-  /// **'完成标准'**
-  String get botsGoalAcceptance;
-
-  /// No description provided for @botsGoalConstraints.
-  ///
-  /// In zh, this message translates to:
-  /// **'规则'**
-  String get botsGoalConstraints;
-
-  /// No description provided for @botsGoalSummary.
-  ///
-  /// In zh, this message translates to:
-  /// **'结果'**
-  String get botsGoalSummary;
-
-  /// No description provided for @botsGoalEvidence.
-  ///
-  /// In zh, this message translates to:
-  /// **'证据'**
-  String get botsGoalEvidence;
-
-  /// No description provided for @botsGoalReason.
-  ///
-  /// In zh, this message translates to:
-  /// **'停止原因'**
-  String get botsGoalReason;
-
-  /// No description provided for @botsGoalCurrent.
-  ///
-  /// In zh, this message translates to:
-  /// **'当前阶段'**
-  String get botsGoalCurrent;
-
-  /// No description provided for @botsGoalReworks.
-  ///
-  /// In zh, this message translates to:
-  /// **'返工 {count} 次'**
-  String botsGoalReworks(int count);
-
-  /// No description provided for @botsGoalFeedback.
-  ///
-  /// In zh, this message translates to:
-  /// **'退回意见：{feedback}'**
-  String botsGoalFeedback(String feedback);
-
-  /// No description provided for @botsGoalStagePending.
-  ///
-  /// In zh, this message translates to:
-  /// **'待开始'**
-  String get botsGoalStagePending;
-
-  /// No description provided for @botsGoalStageActive.
-  ///
-  /// In zh, this message translates to:
-  /// **'进行中'**
-  String get botsGoalStageActive;
-
-  /// No description provided for @botsGoalStagePassed.
-  ///
-  /// In zh, this message translates to:
-  /// **'已完成'**
-  String get botsGoalStagePassed;
-
-  /// No description provided for @botsGoalStageUnknown.
-  ///
-  /// In zh, this message translates to:
-  /// **'未知状态'**
-  String get botsGoalStageUnknown;
-
-  /// No description provided for @botsGoalTaskPending.
-  ///
-  /// In zh, this message translates to:
-  /// **'未开始'**
-  String get botsGoalTaskPending;
-
-  /// No description provided for @botsGoalTaskWorking.
-  ///
-  /// In zh, this message translates to:
-  /// **'进行中'**
-  String get botsGoalTaskWorking;
-
-  /// No description provided for @botsGoalTaskReported.
-  ///
-  /// In zh, this message translates to:
-  /// **'已汇报'**
-  String get botsGoalTaskReported;
-
-  /// No description provided for @botsGoalTaskDone.
-  ///
-  /// In zh, this message translates to:
-  /// **'已完成'**
-  String get botsGoalTaskDone;
-
-  /// No description provided for @botsGoalTaskUnknown.
-  ///
-  /// In zh, this message translates to:
-  /// **'未知状态'**
-  String get botsGoalTaskUnknown;
-
-  /// No description provided for @botsGoalStatusDrafting.
-  ///
-  /// In zh, this message translates to:
-  /// **'草拟中'**
-  String get botsGoalStatusDrafting;
-
-  /// No description provided for @botsGoalStatusActive.
-  ///
-  /// In zh, this message translates to:
-  /// **'进行中'**
-  String get botsGoalStatusActive;
-
-  /// No description provided for @botsGoalStatusPaused.
-  ///
-  /// In zh, this message translates to:
-  /// **'已暂停'**
-  String get botsGoalStatusPaused;
-
-  /// No description provided for @botsGoalStatusComplete.
-  ///
-  /// In zh, this message translates to:
-  /// **'已完成'**
-  String get botsGoalStatusComplete;
-
-  /// No description provided for @botsGoalStatusStopped.
-  ///
-  /// In zh, this message translates to:
-  /// **'已停止'**
-  String get botsGoalStatusStopped;
-
-  /// No description provided for @botsGoalStatusUnknown.
-  ///
-  /// In zh, this message translates to:
-  /// **'未知状态'**
-  String get botsGoalStatusUnknown;
-
   /// No description provided for @brandXiaomi.
   ///
   /// In zh, this message translates to:
@@ -49159,6 +48997,12 @@ abstract class L10n {
   /// In zh, this message translates to:
   /// **'开关朗读与字幕，切换触发方式、引擎与音色，重载语音模型。'**
   String get vmodeCatalogSummary;
+
+  /// No description provided for @vmodeCloudKeyMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'云端朗读还没有密钥，请先在语音插件设置里填写'**
+  String get vmodeCloudKeyMissing;
 
   /// No description provided for @voiceScribeReadFailed.
   ///

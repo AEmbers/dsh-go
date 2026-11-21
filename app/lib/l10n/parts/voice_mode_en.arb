@@ -125,5 +125,6 @@
     }
   },
   "vmodeCatalogTitle": "Voice and reading",
-  "vmodeCatalogSummary": "Turn reading and captions on or off, pick the trigger, engine and voice, and reload the speech models."
+  "vmodeCatalogSummary": "Turn reading and captions on or off, pick the trigger, engine and voice, and reload the speech models.",
+  "vmodeCloudKeyMissing": "Cloud reading has no API key yet. Add one in the voice plugin settings."
 }
