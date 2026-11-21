@@ -130,25 +130,19 @@ class _DisplaySection extends ConsumerWidget {
             PillSegment(VoiceReadAloud.off, l10n.vmodeReadAloudOff),
           ],
           selected: display.readAloud,
-          onChanged: editable
-              ? (value) => ref.read(voiceModeProvider.notifier).setDisplay(readAloud: value)
-              : null,
+          onChanged: editable ? (value) => ref.read(voiceModeProvider.notifier).setDisplay(readAloud: value) : null,
         ),
         SettingsSwitchTile(
           icon: AppIcons.info,
           title: l10n.vmodeShowCaptions,
           value: display.showCaptions,
-          onChanged: editable
-              ? (value) => ref.read(voiceModeProvider.notifier).setDisplay(showCaptions: value)
-              : null,
+          onChanged: editable ? (value) => ref.read(voiceModeProvider.notifier).setDisplay(showCaptions: value) : null,
         ),
         SettingsSwitchTile(
           icon: AppIcons.more,
           title: l10n.vmodeShowStatusBar,
           value: display.showStatusBar,
-          onChanged: editable
-              ? (value) => ref.read(voiceModeProvider.notifier).setDisplay(showStatusBar: value)
-              : null,
+          onChanged: editable ? (value) => ref.read(voiceModeProvider.notifier).setDisplay(showStatusBar: value) : null,
         ),
         if (!snapshot.canEditSettings)
           ListPageRow(
@@ -213,12 +207,7 @@ class _EngineSection extends ConsumerWidget {
               : null,
         ),
         if (settings != null)
-          EngineFieldRow(
-            title: l10n.vmodeVoice,
-            subtitle: settings.voice,
-            value: settings.voice,
-            enabled: false,
-          ),
+          EngineFieldRow(title: l10n.vmodeVoice, subtitle: settings.voice, value: settings.voice, enabled: false),
         if (settings != null)
           EngineFieldRow(
             title: l10n.vmodeRate,
@@ -230,18 +219,17 @@ class _EngineSection extends ConsumerWidget {
                   icon: const Icon(AppIcons.decrement, size: 20),
                   tooltip: l10n.vmodeRate,
                   onPressed: editable
-                      ? () => ref
-                            .read(voiceModeProvider.notifier)
-                            .updateSettings({'rate': _stepRate(settings.rate, -0.1)})
+                      ? () => ref.read(voiceModeProvider.notifier).updateSettings({
+                          'rate': _stepRate(settings.rate, -0.1),
+                        })
                       : null,
                 ),
                 IconButton(
                   icon: const Icon(AppIcons.increment, size: 20),
                   tooltip: l10n.vmodeRate,
                   onPressed: editable
-                      ? () => ref
-                            .read(voiceModeProvider.notifier)
-                            .updateSettings({'rate': _stepRate(settings.rate, 0.1)})
+                      ? () =>
+                            ref.read(voiceModeProvider.notifier).updateSettings({'rate': _stepRate(settings.rate, 0.1)})
                       : null,
                 ),
               ],
@@ -261,11 +249,7 @@ class _EngineSection extends ConsumerWidget {
                 : null,
           ),
         if (settings != null)
-          EngineFieldRow(
-            title: l10n.vmodeSilence,
-            value: l10n.vmodeSilenceValue(settings.silenceMs),
-            enabled: false,
-          ),
+          EngineFieldRow(title: l10n.vmodeSilence, value: l10n.vmodeSilenceValue(settings.silenceMs), enabled: false),
         if (settings != null)
           EngineFieldRow(
             title: l10n.vmodeIdleTimeout,
@@ -307,6 +291,12 @@ class _ModelSection extends ConsumerWidget {
           ListPageRow(
             leading: Icon(AppIcons.warning, size: 20, color: colors.warning),
             title: l10n.vmodeEngineStruggling,
+            subtitleColor: colors.warning,
+          ),
+        if (snapshot.cloudKeyMissing)
+          ListPageRow(
+            leading: Icon(AppIcons.warning, size: 20, color: colors.warning),
+            title: l10n.vmodeCloudKeyMissing,
             subtitleColor: colors.warning,
           ),
       ],
@@ -361,7 +351,10 @@ class VoiceModeStrip extends ConsumerWidget {
     // The plugin draws its own quiet line when voice is off; this one is the
     // control, so it only takes a row while there is something to control.
     final engaged =
-        held || snapshot.listening || snapshot.engineStruggling || (turn != VoiceTurnState.idle && turn != VoiceTurnState.unknown);
+        held ||
+        snapshot.listening ||
+        snapshot.engineStruggling ||
+        (turn != VoiceTurnState.idle && turn != VoiceTurnState.unknown);
     if (!engaged) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -471,19 +464,10 @@ Future<void> showVoiceModeSheet(BuildContext context) {
             SheetTitleBar(l10n.vmodeTitle),
             Flexible(
               child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  kSheetGutter,
-                  0,
-                  kSheetGutter,
-                  MediaQuery.paddingOf(context).bottom + 20,
-                ),
+                padding: EdgeInsets.fromLTRB(kSheetGutter, 0, kSheetGutter, MediaQuery.paddingOf(context).bottom + 20),
                 child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _DisplaySection(),
-                    SizedBox(height: 16),
-                    _TriggerSection(),
-                  ],
+                  children: [_DisplaySection(), SizedBox(height: 16), _TriggerSection()],
                 ),
               ),
             ),

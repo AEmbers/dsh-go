@@ -244,14 +244,6 @@ class DsBotController extends Notifier<DsBotStatus> {
         _ => DsBotAvailability.failed,
       };
       state = state.copyWith(availability: availability, error: () => describeDsBotError(error));
-      // `hello` is the one endpoint a DS Bot from before the mobile API does
-      // not answer, but `state` and `room-chat` are older than it and still
-      // do. Reading them anyway keeps its Bots and groups open instead of
-      // locking the whole feature behind an update page; the host stays
-      // `outdated` so the page can still say what is missing.
-      if (availability == DsBotAvailability.outdated) {
-        await _loadState(generation, full: true, keepAvailability: true);
-      }
       return;
     }
     if (!_current(generation)) return;
@@ -267,7 +259,7 @@ class DsBotController extends Notifier<DsBotStatus> {
     feed.start();
   }
 
-  Future<void> _loadState(int generation, {bool full = false, bool keepAvailability = false}) async {
+  Future<void> _loadState(int generation, {bool full = false}) async {
     final api = _api;
     if (api == null) return;
     if (_stateBusyGeneration == generation) {
@@ -280,7 +272,7 @@ class DsBotController extends Notifier<DsBotStatus> {
       final answer = await api.state(since: full ? null : team?.revision, modelsKey: full ? null : team?.modelsKey);
       if (!_current(generation)) return;
       state = state.copyWith(
-        availability: keepAvailability ? null : DsBotAvailability.ready,
+        availability: DsBotAvailability.ready,
         team: answer.team,
         live: answer.live,
         error: () => null,
@@ -881,8 +873,6 @@ class RoomChatState {
     this.speaking,
     this.error,
     this.pending = const [],
-    this.goal,
-    this.goalsKnown = false,
   });
 
   final List<DsBotItem> items;
@@ -893,14 +883,6 @@ class RoomChatState {
   final String? speaking;
   final String? error;
   final List<DsBotPending> pending;
-
-  /// The group's goal and its stage/task board; null when it has none.
-  final DsBotRoomGoal? goal;
-
-  /// Whether a page has told us about the goal at all: a host from before
-  /// `group_goal` never does, and then the chat draws no board rather than
-  /// 「no goal」.
-  final bool goalsKnown;
 
   bool get hasEarlier => cursor != null;
 
@@ -913,8 +895,6 @@ class RoomChatState {
     String? Function()? speaking,
     String? Function()? error,
     List<DsBotPending>? pending,
-    DsBotRoomGoal? Function()? goal,
-    bool? goalsKnown,
   }) => RoomChatState(
     items: items ?? this.items,
     cursor: cursor == null ? this.cursor : cursor(),
@@ -924,8 +904,6 @@ class RoomChatState {
     speaking: speaking == null ? this.speaking : speaking(),
     error: error == null ? this.error : error(),
     pending: pending ?? this.pending,
-    goal: goal == null ? this.goal : goal(),
-    goalsKnown: goalsKnown ?? this.goalsKnown,
   );
 }
 
@@ -1014,15 +992,6 @@ class RoomChatController extends Notifier<RoomChatState> {
       final page = await api.roomChat(roomId);
       if (!_current(generation) || load != _load) return;
       final merged = mergeNewestPage(state.items, page.items);
-      // The goal may come two ways: with the room record in `state` (the
-      // host's own shape — every ds-bot that has `group_goal` sends it there),
-      // or with the chat page itself. A page opened before the newest `state`
-      // takes the page's; otherwise the room record's. A host from before
-      // `group_goal` sends neither, and then the chat draws no board at all
-      // rather than claiming the group has no goal.
-      final status = ref.read(dsBotProvider);
-      final goalKnown = status.supports('room-goal') || status.team?.rooms.any((r) => r.goal != null) == true;
-      final roomGoal = status.team?.rooms.where((r) => r.id == roomId).firstOrNull?.goal;
       state = state.copyWith(
         items: merged.items,
         cursor: merged.joined && state.items.isNotEmpty ? null : () => page.cursor,
@@ -1031,8 +1000,6 @@ class RoomChatController extends Notifier<RoomChatState> {
         speaking: () => page.speaking,
         error: () => null,
         pending: settlePending(state.pending, page.items),
-        goal: goalKnown ? () => page.goal ?? roomGoal : null,
-        goalsKnown: goalKnown,
       );
       _armPoll(page.running);
     } catch (error) {

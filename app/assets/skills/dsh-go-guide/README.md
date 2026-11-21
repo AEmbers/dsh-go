@@ -15,7 +15,7 @@
 - [外观](zh/09-appearance.md)：明暗、配色、图标与图片快捷方式、启动画面、壁纸、对话字号
 - [设置](zh/10-settings.md)：设置页每一项的作用、检查更新
 - [常见问题](zh/11-faq.md)：连不上、后台被关、引擎启动、手机操控、宠物、插件、App 发送的数据
-- [DS Bot](zh/12-bots.md)：手机端支持、工作目录、复制 Bot、智能体团队、团队面板
+- [DS Bot](zh/12-bots.md)：手机端支持、工作目录、复制 Bot
 - [酒馆](zh/13-tavern.md)：导入角色卡、书架与对话、舞台、群聊、排版和备份
 - [全部功能](zh/14-all-features.md)：网页版功能的总目录、当前对话的入口、插件面板、分享配置
 - [子代理与智能体团队](zh/15-agents.md)：子代理谱系、团队三栏、开启团队、子代理设置
@@ -36,7 +36,7 @@
 - [Appearance](en/09-appearance.md): light and dark, colors, icons and picture shortcuts, launch screen, wallpaper, chat text size
 - [Settings](en/10-settings.md): what each setting does, checking for updates
 - [Troubleshooting](en/11-faq.md): connection, background, engine start, phone control, pets, plugins, what the app sends
-- [DS Bot](en/12-bots.md): mobile support, working directories, duplicating a Bot, agent teams, the team panel
+- [DS Bot](en/12-bots.md): mobile support, working directories, duplicating a Bot
 - [Tavern](en/13-tavern.md): importing character cards, shelf and chats, stage, group chats, layout and backups
 - [All features](en/14-all-features.md): the index of DSH Web features on the phone, current-chat entries, plugin panels, share profiles
 - [Subagents and agent teams](en/15-agents.md): subagent lineage, the three team columns, enabling teams, subagent settings

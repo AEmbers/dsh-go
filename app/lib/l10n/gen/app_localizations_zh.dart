@@ -3627,95 +3627,6 @@ class L10nZh extends L10n {
   String get botsCreationConnectionChanged => '连接已变化，请重新打开创建页面后再操作。';
 
   @override
-  String get botsGoalBoard => '群目标';
-
-  @override
-  String botsGoalStageOf(int current, int count) {
-    return '阶段 $current/$count';
-  }
-
-  @override
-  String botsGoalPassedCount(int passed) {
-    return '已过 $passed 个阶段';
-  }
-
-  @override
-  String get botsGoalObjective => '目标';
-
-  @override
-  String get botsGoalAcceptance => '完成标准';
-
-  @override
-  String get botsGoalConstraints => '规则';
-
-  @override
-  String get botsGoalSummary => '结果';
-
-  @override
-  String get botsGoalEvidence => '证据';
-
-  @override
-  String get botsGoalReason => '停止原因';
-
-  @override
-  String get botsGoalCurrent => '当前阶段';
-
-  @override
-  String botsGoalReworks(int count) {
-    return '返工 $count 次';
-  }
-
-  @override
-  String botsGoalFeedback(String feedback) {
-    return '退回意见：$feedback';
-  }
-
-  @override
-  String get botsGoalStagePending => '待开始';
-
-  @override
-  String get botsGoalStageActive => '进行中';
-
-  @override
-  String get botsGoalStagePassed => '已完成';
-
-  @override
-  String get botsGoalStageUnknown => '未知状态';
-
-  @override
-  String get botsGoalTaskPending => '未开始';
-
-  @override
-  String get botsGoalTaskWorking => '进行中';
-
-  @override
-  String get botsGoalTaskReported => '已汇报';
-
-  @override
-  String get botsGoalTaskDone => '已完成';
-
-  @override
-  String get botsGoalTaskUnknown => '未知状态';
-
-  @override
-  String get botsGoalStatusDrafting => '草拟中';
-
-  @override
-  String get botsGoalStatusActive => '进行中';
-
-  @override
-  String get botsGoalStatusPaused => '已暂停';
-
-  @override
-  String get botsGoalStatusComplete => '已完成';
-
-  @override
-  String get botsGoalStatusStopped => '已停止';
-
-  @override
-  String get botsGoalStatusUnknown => '未知状态';
-
-  @override
   String get brandXiaomi => '小米 / Redmi';
 
   @override
@@ -28362,6 +28273,9 @@ class L10nZh extends L10n {
 
   @override
   String get vmodeCatalogSummary => '开关朗读与字幕，切换触发方式、引擎与音色，重载语音模型。';
+
+  @override
+  String get vmodeCloudKeyMissing => '云端朗读还没有密钥，请先在语音插件设置里填写';
 
   @override
   String get voiceScribeReadFailed => '没能读取语音设置，请重试。';

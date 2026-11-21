@@ -422,6 +422,29 @@ void main() {
       final config = await (await connect()).readVoiceModeConfig();
       expect(config['basePath'], '/voice-mode');
       expect(config['voice'], 'zh-CN-XiaoxiaoNeural');
+      expect(VoiceCloudKey.fromConfig(config).missing, isFalse);
+    });
+
+    test('v0.7.44 config names a missing cloud TTS key', () async {
+      // Fields added on the config route in qishuilalala/dsh-voice-mode v0.7.44
+      // (index.js `/voice-mode/config`: ttsNeedsKey, ttsKeyPresent).
+      route(voiceModeConfigPath, (request, response) async {
+        response.sendJson({
+          'basePath': '/voice-mode',
+          'readAloud': 'voice',
+          'ttsEngine': 'edge',
+          'openaiPreset': '',
+          'ttsNeedsKey': true,
+          'ttsKeyPresent': false,
+        });
+      });
+      final config = await (await connect()).readVoiceModeConfig();
+      final key = VoiceCloudKey.fromConfig(config);
+      expect(key.needsKey, isTrue);
+      expect(key.keyPresent, isFalse);
+      expect(key.missing, isTrue);
+      expect(VoiceCloudKey.fromConfig({'ttsNeedsKey': true, 'ttsKeyPresent': true}).missing, isFalse);
+      expect(VoiceCloudKey.fromConfig(null).missing, isFalse);
     });
   });
 

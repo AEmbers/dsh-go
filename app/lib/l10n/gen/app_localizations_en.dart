@@ -3818,95 +3818,6 @@ class L10nEn extends L10n {
   String get botsCreationConnectionChanged => 'The connection changed. Reopen this form to create on the current host.';
 
   @override
-  String get botsGoalBoard => 'Group goal';
-
-  @override
-  String botsGoalStageOf(int current, int count) {
-    return 'Stage $current of $count';
-  }
-
-  @override
-  String botsGoalPassedCount(int passed) {
-    return '$passed stages passed';
-  }
-
-  @override
-  String get botsGoalObjective => 'Goal';
-
-  @override
-  String get botsGoalAcceptance => 'Done when';
-
-  @override
-  String get botsGoalConstraints => 'Rules';
-
-  @override
-  String get botsGoalSummary => 'Delivered';
-
-  @override
-  String get botsGoalEvidence => 'Evidence';
-
-  @override
-  String get botsGoalReason => 'Stopped because';
-
-  @override
-  String get botsGoalCurrent => 'Current stage';
-
-  @override
-  String botsGoalReworks(int count) {
-    return 'Sent back $count times';
-  }
-
-  @override
-  String botsGoalFeedback(String feedback) {
-    return 'Sent back: $feedback';
-  }
-
-  @override
-  String get botsGoalStagePending => 'Not started';
-
-  @override
-  String get botsGoalStageActive => 'In progress';
-
-  @override
-  String get botsGoalStagePassed => 'Passed';
-
-  @override
-  String get botsGoalStageUnknown => 'Unknown';
-
-  @override
-  String get botsGoalTaskPending => 'Not started';
-
-  @override
-  String get botsGoalTaskWorking => 'Working';
-
-  @override
-  String get botsGoalTaskReported => 'Reported';
-
-  @override
-  String get botsGoalTaskDone => 'Done';
-
-  @override
-  String get botsGoalTaskUnknown => 'Unknown';
-
-  @override
-  String get botsGoalStatusDrafting => 'Drafting';
-
-  @override
-  String get botsGoalStatusActive => 'Active';
-
-  @override
-  String get botsGoalStatusPaused => 'Paused';
-
-  @override
-  String get botsGoalStatusComplete => 'Complete';
-
-  @override
-  String get botsGoalStatusStopped => 'Stopped';
-
-  @override
-  String get botsGoalStatusUnknown => 'Unknown';
-
-  @override
   String get brandXiaomi => 'Xiaomi / Redmi';
 
   @override
@@ -29898,6 +29809,9 @@ class L10nEn extends L10n {
   @override
   String get vmodeCatalogSummary =>
       'Turn reading and captions on or off, pick the trigger, engine and voice, and reload the speech models.';
+
+  @override
+  String get vmodeCloudKeyMissing => 'Cloud reading has no API key yet. Add one in the voice plugin settings.';
 
   @override
   String get voiceScribeReadFailed => 'Could not read voice settings. Retry.';
