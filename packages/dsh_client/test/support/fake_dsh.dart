@@ -34,6 +34,11 @@ class FakeDsh {
   /// Business handlers: endpoint -> args -> result (`{ok, value|error}`).
   final Map<String, Map<String, Object?> Function(Map<String, Object?> args)> handlers = {};
 
+  /// Non-RPC HTTP routes by exact path — plugin routes such as
+  /// `/plugins/dsh-agent-teams/state` or `/voice-mode/settings`, which the Host
+  /// serves as plain Fetch handlers rather than through `/api/<endpoint>`.
+  final Map<String, Future<void> Function(HttpRequest request, HttpResponse response)> rawRoutes = {};
+
   /// Raw-byte uploads (`POST /api/session/uploadFileBinary`) in arrival order:
   /// query, body length and content type.
   final List<Map<String, Object?>> binaryUploads = [];
@@ -129,6 +134,13 @@ class FakeDsh {
       final ws = await WebSocketTransformer.upgrade(request);
       final socket = FakeMuxSocket(this, ws, ++_generation);
       sockets.add(socket);
+      return;
+    }
+    // Plugin routes (`/plugins/<pkg>/...`, `/voice-mode/...`) are plain Fetch
+    // routes on the Host, not RPC envelopes, so a test registers them by path.
+    final raw = rawRoutes[request.uri.path];
+    if (raw != null) {
+      await raw(request, response);
       return;
     }
     if (!request.uri.path.startsWith('/api/')) {

@@ -16,6 +16,7 @@ import '../../plugins/seams/seams.dart';
 import '../../state/android_features.dart';
 import '../../state/plugins_state.dart';
 import '../common/feature_tile.dart';
+import '../agents/team_activity_page.dart';
 import '../agents/team_page.dart';
 import '../bots/bots_page.dart';
 import '../community/community_page.dart';
@@ -26,6 +27,7 @@ import '../phone/phone_control_screen.dart';
 import '../phone/system_actions_page.dart';
 import '../plugins/plugin_detail_sheet.dart';
 import '../plugins/plugins_screen.dart';
+import '../plugins/voice_mode_page.dart' show VoiceModeSettingsPage;
 import '../plugins/seats/plugin_seat_page.dart';
 import '../plugins/seats/seat_links.dart';
 import '../providers/providers_page.dart';
@@ -306,6 +308,13 @@ final featureSections = <FeatureSection>[
       native: (id) => TeamPage(sessionId: id),
     ),
     FeatureItem.localized(
+      id: 'agent-teams-plugin',
+      title: (l10n) => l10n.ateamCatalogTitle,
+      summary: (l10n) => l10n.ateamCatalogSummary,
+      icon: AppIcons.team,
+      native: (id) => TeamActivityPage(sessionId: id),
+    ),
+    FeatureItem.localized(
       id: 'cot-translation',
       title: (l10n) => l10n.catalogCotTranslation,
       summary: (l10n) => l10n.catalogCotTranslationSummary,
@@ -320,6 +329,13 @@ final featureSections = <FeatureSection>[
       action: _backToChat,
       // l10n:keep DSH Web plugin title aliases used for deep-link matching
       web: const DshWebTarget(pluginItem: ['语音输入', 'Voice input']),
+    ),
+    FeatureItem.localized(
+      id: 'voice-mode-plugin',
+      title: (l10n) => l10n.vmodeCatalogTitle,
+      summary: (l10n) => l10n.vmodeCatalogSummary,
+      icon: AppIcons.voice,
+      native: (_) => const VoiceModeSettingsPage(),
     ),
   ]),
   FeatureSection.localized((l10n) => l10n.catalogCommunitySharingSection, [

@@ -20,7 +20,8 @@
 #   --no-companion                   release without the licensed companion pack
 #   --beta                           embed the beta channel token (internal builds only)
 #   --side                           test build that installs next to the released app
-#                                    (package ...dsh_app.test, named DSH Go 测试, own data)
+#                                    (package ...dsh_app.test, named DSH Go 测试, own data).
+#                                    Works for debug and release.
 #   --dry-run                        print what would run
 #
 # The version name comes from app/pubspec.yaml; its `+N` is only a placeholder.
@@ -134,7 +135,6 @@ done
 # Side builds: own package (app/build.gradle.kts). Their in-app updater still
 # fetches the released APK, which installs as the released app, not over this one.
 if ((side)); then
-  [[ $mode == release ]] || die "--side is for release builds"
   export DSH_SIDE_BUILD=1
 else
   unset DSH_SIDE_BUILD

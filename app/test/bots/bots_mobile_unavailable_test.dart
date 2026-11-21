@@ -47,9 +47,7 @@ void main() {
   for (final (name, page) in <(String, Widget)>[
     ('home', const BotsPage()),
     ('bot chat', const BotChatPage(botId: 'm1')),
-    ('room chat', const RoomChatPage(roomId: 'r1')),
     ('bot details', const BotDetailsPage(botId: 'm1')),
-    ('room details', const RoomDetailsPage(roomId: 'r1')),
   ]) {
     testWidgets('official v0.2.3 $name explains capability and opens Web', (tester) async {
       final fake = FakeDsBotTransport();
@@ -69,10 +67,38 @@ void main() {
       // The copy names no release: none with the mobile API has shipped yet.
       expect(find.textContaining(RegExp(r'v\d+\.\d+')), findsNothing);
       expect(fake.feedOpens, 0);
-      expect(fake.endpoints, ['hello']);
+      // `hello` is the one endpoint such a host does not answer; `state` is
+      // older and still is, so the team is read anyway and these pages can
+      // name what they have before the update card explains the rest.
+      expect(fake.endpoints, ['hello', 'state']);
       await tester.ensureVisible(find.byKey(const ValueKey('dsbot-open-web')));
       await tester.tap(find.byKey(const ValueKey('dsbot-open-web')));
       expect(webOpens, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final (name, page) in <(String, Widget)>[
+    ('room chat', const RoomChatPage(roomId: 'r1')),
+    ('room details', const RoomDetailsPage(roomId: 'r1')),
+  ]) {
+    testWidgets('official v0.2.3 $name stays readable instead of locking the group', (tester) async {
+      final fake = FakeDsBotTransport();
+      fake.handlers['hello'] = (_) => throw officialError;
+      usePhoneView(tester);
+      await tester.pumpWidget(
+        goldenApp(
+          home: page,
+          brightness: Brightness.light,
+          overrides: [...dsBotOverrides(fake), dsBotWebOpenerProvider.overrideWithValue((_, _) {})],
+        ),
+      );
+      await frames(tester);
+      // The group is listed by `state`, so it opens; the update card that
+      // would replace the whole page stays away.
+      expect(find.text(appL10n.botsMobileUnsupportedTitle), findsNothing);
+      expect(find.text(appL10n.botsMobileApiRequired), findsNothing);
+      expect(find.text('发布会'), findsWidgets);
       expect(tester.takeException(), isNull);
     });
   }

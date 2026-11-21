@@ -1,0 +1,138 @@
+{
+  "ateamTitle": "Team panel",
+  "ateamNotServed": "This host does not have the Agent Teams plugin",
+  "ateamNotEnabled": "The Agent Teams plugin is off",
+  "ateamEnabling": "Enabling…",
+  "ateamEnable": "Enable Agent Teams",
+  "ateamNoTeams": "No teams yet",
+  "ateamNoTeamsMessage": "Start a team session on this host and its members and tasks show up here.",
+  "ateamReadFailed": "Could not read the team state",
+  "ateamPhaseStaged": "Awaiting approval",
+  "ateamPhaseRunning": "Running",
+  "ateamPhaseArchived": "Archived",
+  "ateamPlanAwaitingReview": "The plan waits for your review",
+  "ateamPlanAwaitingFeedback": "The plan waits for your feedback",
+  "ateamApprove": "Approve & run",
+  "ateamContinue": "Discuss further",
+  "ateamDiscard": "Discard plan",
+  "ateamHalt": "Halt team",
+  "ateamHalted": "The team is halted",
+  "ateamLoopHalted": "Quality loop halted",
+  "ateamLoopDeliverable": "Quality loop: deliverable",
+  "ateamLoopEscalated": "Quality loop escalated",
+  "ateamLoopRunning": "Quality loop running",
+  "ateamLoopBlocked": "Quality loop blocked",
+  "ateamDeliveryReady": "Ready to deliver",
+  "ateamDeliveryBlocked": "Not deliverable yet",
+  "ateamBlockers": "Blockers",
+  "ateamWarnings": "Warnings",
+  "ateamCaptain": "Captain",
+  "ateamCaptainInbox": "Captain inbox",
+  "ateamCaptainInboxEmpty": "The captain inbox is empty",
+  "ateamMembers": "Members",
+  "ateamTasks": "Tasks",
+  "ateamOverview": "Overview",
+  "ateamWorking": "Working",
+  "ateamIdle": "Idle",
+  "ateamUnknown": "Unknown",
+  "ateamRemoved": "Left",
+  "ateamMembersWorking": "{count} members working",
+  "@ateamMembersWorking": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamMessagesCount": "{count} inbox messages",
+  "@ateamMessagesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamProgress": "{done}/{total}",
+  "@ateamProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamUnread": "{count} unread",
+  "@ateamUnread": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamRound": "Round {round}",
+  "@ateamRound": {
+    "placeholders": {
+      "round": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamVerdict": "Verdict: {verdict}",
+  "@ateamVerdict": {
+    "placeholders": {
+      "verdict": {
+        "type": "String"
+      }
+    }
+  },
+  "ateamVerdictStale": "Verdict is stale",
+  "ateamTaskDependencies": "{count} dependencies",
+  "@ateamTaskDependencies": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamLane": "Lane {depth}",
+  "@ateamLane": {
+    "placeholders": {
+      "depth": {
+        "type": "int"
+      }
+    }
+  },
+  "ateamTaskStateCompleted": "Completed",
+  "ateamTaskStateFailed": "Failed",
+  "ateamTaskStateCancelled": "Cancelled",
+  "ateamTaskStateRunning": "Running",
+  "ateamTaskStateClaimed": "Claimed",
+  "ateamTaskStateBlocked": "Waiting on dependencies",
+  "ateamTaskStateOpen": "Ready",
+  "ateamQualityKind": "Quality gate",
+  "ateamDescription": "Description",
+  "ateamAssignee": "Assignee",
+  "ateamCurrentTask": "Current task",
+  "ateamModelRoute": "Model",
+  "ateamEffort": "Thinking",
+  "ateamExecutionPrompt": "Brief",
+  "ateamOpenChat": "Open chat",
+  "ateamErrorUnavailable": "This host does not serve the team endpoints",
+  "ateamErrorCaptainDetached": "The captain chat is not attached; open it first",
+  "ateamErrorTeamMissing": "This team no longer belongs to that captain",
+  "ateamErrorRejected": "The plugin rejected that edit",
+  "ateamErrorFailed": "That did not work",
+  "ateamUpdatedJustNow": "Updated just now",
+  "ateamHaltConfirmTitle": "Halt the whole team?",
+  "ateamHaltConfirmBody": "Every member stops its current turn; the team itself stays where it is.",
+  "ateamDiscardConfirmTitle": "Discard this plan?",
+  "ateamDiscardConfirmBody": "The plan is archived and can no longer be approved.",
+  "ateamHaltedNote": "Team halted",
+  "ateamStateNote": "Team state",
+  "ateamLoop": "Quality loop",
+  "ateamCatalogTitle": "Agent Teams",
+  "ateamCatalogSummary": "Approve a staged plan, watch the members, the task lanes and the captain inbox, and halt the team at any time.",
+  "ateamCardOpenPanel": "Open team panel"
+}

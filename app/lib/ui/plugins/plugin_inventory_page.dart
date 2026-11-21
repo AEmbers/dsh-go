@@ -14,6 +14,7 @@ import '../../state/connection_state.dart';
 import '../../state/engine_settings_state.dart';
 import '../../state/plugin_config/plugin_config_state.dart';
 import '../../state/plugins_state.dart' show installedPluginsProvider;
+import '../../state/voice_mode_state.dart' show voiceModeBundleName;
 import '../../state/voice_scribe_settings.dart';
 import '../common/app_sheet.dart';
 import '../common/capsule_chip.dart';
@@ -32,6 +33,7 @@ import '../theme/theme.dart';
 import 'config/plugin_config_entries.dart';
 import 'plugin_detail_sheet.dart' show PluginHero;
 import 'plugin_widgets.dart';
+import 'voice_mode_page.dart';
 import 'voice_scribe_settings_page.dart';
 
 /// Dot colour of a row's state.
@@ -395,6 +397,9 @@ class InventorySheet extends ConsumerWidget {
     final connection = ref.watch(activeConnectionProvider);
     final voiceSource = connection.isLoading || connection.hasError ? null : connection.value;
     final voice = item.moduleName == voiceScribeModule;
+    // The voice-mode plugin keeps its switches on its own page too: the plugin
+    // owns the microphone and the reading voice, not this form.
+    final voiceMode = item.moduleName == voiceModeBundleName;
     final facts = <(String, String)>[
       if (item.source case final source?) (l10n.pluginsSource, source),
       if (item.version case final version?) (l10n.commonVersion, version),
@@ -441,7 +446,7 @@ class InventorySheet extends ConsumerWidget {
                 ],
                 // The schema form and the voice plugin's own settings share
                 // one card when a plugin has both.
-                if (configurable || voice) ...[
+                if (configurable || voice || voiceMode) ...[
                   const SizedBox(height: 16),
                   ListPageCard(
                     margin: EdgeInsets.zero,
@@ -453,6 +458,13 @@ class InventorySheet extends ConsumerWidget {
                           subtitle: pluginForm ? pluginConfigReadOnlyNote(config, item.rowId, l10n: l10n) : null,
                           chevron: true,
                           onTap: () => unawaited(openSettingsPage(context, item.rowId, title: formTitle)),
+                        ),
+                      if (voiceMode)
+                        ListPageRow(
+                          icon: AppIcons.voice,
+                          title: l10n.vmodeSettings,
+                          chevron: true,
+                          onTap: () => unawaited(Navigator.of(context).push<void>(VoiceModeSettingsPage.route())),
                         ),
                       if (voice)
                         ListPageRow(
