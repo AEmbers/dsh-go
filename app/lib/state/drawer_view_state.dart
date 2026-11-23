@@ -432,14 +432,14 @@ final drawerFilterProvider = NotifierProvider<DrawerFilterController, DrawerFilt
 
 /// Which pile the sidebar is looking at.
 ///
-/// 运行中 is the host's `running` flag. 历史 is every other conversation.
+/// 进行中 is the host's `running` flag. 历史 is every other conversation.
 /// The status capsules below apply inside the pile.
 enum DrawerListScope {
   running,
   history;
 
   String get label => switch (this) {
-    running => appL10n.commonRunning,
+    running => appL10n.commonInProgress,
     history => appL10n.shellListHistory,
   };
 }

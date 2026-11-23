@@ -34874,6 +34874,12 @@ abstract class L10n {
   /// **'命令行'**
   String get shellWorkbenchCli;
 
+  /// No description provided for @shellWorkbenchModeCli.
+  ///
+  /// In zh, this message translates to:
+  /// **'CLI'**
+  String get shellWorkbenchModeCli;
+
   /// No description provided for @shellWorkbenchCliNeedsSession.
   ///
   /// In zh, this message translates to:

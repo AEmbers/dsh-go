@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../state/drawer_view_state.dart';
 import '../../common/segmented_pill.dart';
 
-/// 运行中 / 历史, above the status capsules.
+/// 进行中 / 历史, above the status capsules.
 class DrawerScopeBar extends ConsumerWidget {
   const DrawerScopeBar({super.key});
 

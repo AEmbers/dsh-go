@@ -111,7 +111,7 @@ void main() {
       // the hairline; the header's new-chat key 12 in from it.
       final composer = tester.getRect(find.byType(Composer));
       expect(composer.center.dx, _near((68 + 896) / 2));
-      expect(896 - _key(tester, 'chat-new-chat').right, _near(12));
+      expect(896 - _key(tester, 'workbench-new-chat').right, _near(12));
       expect(find.byKey(const ValueKey('chat-panel-key')), findsNothing);
     });
 

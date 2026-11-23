@@ -20035,6 +20035,9 @@ class L10nEn extends L10n {
   String get shellWorkbenchCli => 'CLI';
 
   @override
+  String get shellWorkbenchModeCli => 'CLI';
+
+  @override
   String get shellWorkbenchCliNeedsSession =>
       'The terminal belongs to one chat. Open or start a chat, then use it here.';
 
