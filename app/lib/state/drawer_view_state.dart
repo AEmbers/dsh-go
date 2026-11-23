@@ -24,6 +24,7 @@ import 'read_list_identity.dart';
 import 'session_attention_state.dart';
 import 'session_created_state.dart';
 import 'sessions_state.dart';
+import 'workbench_bridge_state.dart';
 import 'workspaces_state.dart';
 
 // ── Folders ──────────────────────────────────────────────────────────────────
@@ -605,9 +606,13 @@ final drawerScopeProvider = Provider<DrawerScope?>((ref) {
   // than flash every conversation.
   final members = workspace?.sessionIds.toSet();
   final archived = registryCurrent && registry.ready ? registry.archivedSessionIds.toSet() : const <String>{};
+  final bridge = ref.watch(workbenchBridgeSessionsProvider);
+  final seenIds = <String>{for (final s in all) s.sessionId};
   final inScope = [
     for (final s in all)
       if (!archived.contains(s.sessionId) && (members == null || members.contains(s.sessionId))) s,
+    for (final ext in bridge)
+      if (!archived.contains(ext.sessionId) && seenIds.add(ext.sessionId)) ext,
   ];
   final botOwned = ref.watch(dsBotOwnedSessionsProvider);
   final result = DrawerScope(
@@ -689,6 +694,11 @@ final class FolderBlock extends DrawerBlock {
   final DrawerFolder folder;
 }
 
+/// External CLI conversations (Antigravity / Claude / Codex) grouped at the top.
+final class AgentChatsBlock extends DrawerBlock {
+  const AgentChatsBlock(super.items);
+}
+
 /// The rest, by day of the sort key.
 final class DayBlock extends DrawerBlock {
   const DayBlock(this.day, super.items);
@@ -766,11 +776,17 @@ List<DrawerBlock> drawerBlocks({
       ]),
     );
   }
+  final agentChats = <SessionSummary>[];
   final days = <SessionDay, List<SessionSummary>>{};
   for (final s in sorted) {
     if (folderOf.containsKey(s.sessionId) || pinnedSet.contains(s.sessionId)) continue;
-    days.putIfAbsent(sessionDayOf(keyOf(s), now), () => []).add(s);
+    if (s.isExternalCli) {
+      agentChats.add(s);
+    } else {
+      days.putIfAbsent(sessionDayOf(keyOf(s), now), () => []).add(s);
+    }
   }
+  if (agentChats.isNotEmpty) blocks.add(AgentChatsBlock(agentChats));
   for (final day in SessionDay.values) {
     if (days[day] case final items?) blocks.add(DayBlock(day, items));
   }

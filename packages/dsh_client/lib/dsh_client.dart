@@ -61,6 +61,7 @@ export 'src/subscriptions_api.dart';
 export 'src/terminal_api.dart';
 export 'src/transcript.dart';
 export 'src/voice_mode_api.dart';
+export 'src/workbench_bridge_api.dart';
 export 'src/workspace_api.dart';
 export 'src/workspace_upload.dart';
 export 'src/workspaces_api.dart';

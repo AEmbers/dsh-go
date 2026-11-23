@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'hosts_state.dart';
 import 'sessions_state.dart';
+import 'workbench_bridge_state.dart';
 
 /// What the wide conversation column is showing.
 enum WorkbenchSurface { chat, cli }
@@ -37,7 +38,7 @@ class OpenSessionTabsController extends Notifier<List<String>> {
     ref.listen(currentSessionProvider, (previous, next) {
       if (next != null) remember(next);
     });
-    ref.listen(sessionsProvider, (previous, next) {
+    ref.listen(mergedSessionsProvider, (previous, next) {
       final rows = next.asData?.value;
       if (rows == null) return;
       final known = {for (final row in rows) row.sessionId};

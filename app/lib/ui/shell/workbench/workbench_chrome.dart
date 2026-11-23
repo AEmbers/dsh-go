@@ -15,7 +15,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/l10n.dart';
 import '../../../state/chat_state.dart';
 import '../../../state/sessions_state.dart';
+import '../../../state/workbench_bridge_state.dart';
 import '../../../state/workbench_state.dart';
+import '../../common/cli_engine_icon.dart';
 import '../../common/empty_view.dart';
 import '../../common/segmented_pill.dart';
 import '../../common/status_dot.dart';
@@ -23,9 +25,12 @@ import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
 import '../sessions_drawer.dart' show sessionTitle;
 
-/// Refreshes the host conversation list and resyncs the active chat.
+/// Refreshes the host conversation list, multi-CLI bridge, and active chat.
 Future<void> refreshWorkbench(WidgetRef ref) async {
-  await ref.read(sessionsProvider.notifier).refresh();
+  await Future.wait([
+    ref.read(sessionsProvider.notifier).refresh(),
+    ref.read(workbenchBridgeSessionsProvider.notifier).refresh(),
+  ]);
   final id = ref.read(currentSessionProvider);
   if (id == null) return;
   await ref.read(chatProvider(id).notifier).resync();
@@ -48,7 +53,7 @@ class WorkbenchTabBar extends ConsumerWidget {
     final topInset = MediaQuery.paddingOf(context).top;
     final tabs = ref.watch(openSessionTabsProvider);
     final current = ref.watch(currentSessionProvider);
-    final sessions = ref.watch(sessionsProvider).asData?.value ?? const <SessionSummary>[];
+    final sessions = ref.watch(mergedSessionsProvider).asData?.value ?? const <SessionSummary>[];
     final byId = {for (final session in sessions) session.sessionId: session};
     final tabCount = tabs.isEmpty && current == null ? 1 : tabs.length + (current == null ? 1 : 0);
 
@@ -78,6 +83,7 @@ class WorkbenchTabBar extends ConsumerWidget {
                     _TabChip(
                       key: const ValueKey('workbench-tab-new'),
                       label: l10n.commonNewChat,
+                      engine: CliEngine.dsh,
                       selected: true,
                       running: false,
                       onTap: () {},
@@ -88,6 +94,7 @@ class WorkbenchTabBar extends ConsumerWidget {
                       closeKey: ValueKey('workbench-tab-close-$id'),
                       runningKey: ValueKey('workbench-tab-running-$id'),
                       label: byId[id] == null ? l10n.commonUntitledChat : sessionTitle(byId[id]!),
+                      engine: byId[id]?.cliEngine ?? CliSessionRef.parse(id)?.engine ?? CliEngine.dsh,
                       selected: id == current,
                       running: byId[id]?.running ?? false,
                       onTap: () => ref.read(openSessionTabsProvider.notifier).show(id),
@@ -199,7 +206,11 @@ class _TabCountBadge extends StatelessWidget {
             value: id,
             child: Row(
               children: [
-                Icon(AppIcons.chat, size: 15, color: id == current ? scheme.primary : scheme.onSurfaceVariant),
+                CliEngineIcon(
+                  engine: byId[id]?.cliEngine ?? CliSessionRef.parse(id)?.engine ?? CliEngine.dsh,
+                  size: 15,
+                  dshColor: id == current ? scheme.primary : scheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -226,6 +237,7 @@ class _TabChip extends StatelessWidget {
   const _TabChip({
     super.key,
     required this.label,
+    required this.engine,
     required this.selected,
     required this.running,
     required this.onTap,
@@ -235,6 +247,7 @@ class _TabChip extends StatelessWidget {
   });
 
   final String label;
+  final CliEngine engine;
   final bool selected;
   final bool running;
   final VoidCallback onTap;
@@ -267,7 +280,11 @@ class _TabChip extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(AppIcons.chat, size: 14, color: selected ? scheme.primary : dsh.textTertiary),
+                  CliEngineIcon(
+                    engine: engine,
+                    size: 14,
+                    dshColor: selected ? scheme.primary : dsh.textTertiary,
+                  ),
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(

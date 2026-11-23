@@ -59,10 +59,12 @@ import '../../state/voice_mode_state.dart';
 import '../../state/voice_state.dart';
 import '../../state/voice_model_state.dart';
 import '../../state/voice_settings.dart';
+import '../../state/workbench_bridge_state.dart';
 import '../../state/workspaces_state.dart' show selectedWorkspaceProvider, workspaceTitle;
 import '../../usage/usage_stats.dart';
 import '../common/app_sheet.dart';
 import '../common/brief_notice.dart';
+import '../common/cli_engine_icon.dart';
 import '../common/fluid_bits.dart';
 import '../common/ui_trace.dart';
 import '../common/sheet_title_bar.dart';
@@ -1715,11 +1717,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
               ),
             ),
           );
-    final listedTitle = sessionId == null
+    final listedSession = sessionId == null
         ? null
         : ref.watch(
-            sessionsProvider.select((async) => async.value?.where((s) => s.sessionId == sessionId).firstOrNull?.title),
+            mergedSessionsProvider.select((async) => async.value?.where((s) => s.sessionId == sessionId).firstOrNull),
           );
+    final listedTitle = listedSession?.title;
+    final currentEngine = listedSession?.cliEngine ?? CliSessionRef.parse(sessionId)?.engine ?? CliEngine.dsh;
     final pendingModel = ref.watch(pendingModelProvider);
     final newFolder = sessionId == null
         ? ref.watch(drawerViewProvider).byId(ref.watch(pendingSessionFolderProvider))
@@ -2022,26 +2026,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                   ChatHeader(
                                     includeTopPadding: false,
                                     scrolledUnder: sessionId == null ? null : _scrolledUnder,
-                                    leading: Icon(
-                                      AppIcons.chat,
-                                      size: 18,
-                                      color: Theme.of(context).colorScheme.primary,
-                                    ),
+                                    leading: CliEngineIcon(engine: currentEngine, size: 18),
                                     title: title,
                                     status: status,
                                     detail: _workbenchDetail(
                                       statusLabel: status.label,
-                                      host: conn?.label,
-                                      workspace: folderLabel(
-                                        ref.watch(
-                                          sessionsProvider.select(
-                                            (s) => s.value
-                                                ?.where((session) => session.sessionId == sessionId)
-                                                .firstOrNull
-                                                ?.cwd,
-                                          ),
-                                        ),
-                                      ),
+                                      host: currentEngine != CliEngine.dsh ? currentEngine.label : conn?.label,
+                                      workspace: folderLabel(listedSession?.cwd),
                                     ),
                                     onOpenDrawer: widget.onOpenDrawer,
                                     // 新对话 sits on the tab row, beside the tabs.
@@ -2067,16 +2058,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                               status: status,
                               detail: !narrow || isChild
                                   ? null
-                                  : folderLabel(
-                                      ref.watch(
-                                        sessionsProvider.select(
-                                          (s) => s.value
-                                              ?.where((session) => session.sessionId == sessionId)
-                                              .firstOrNull
-                                              ?.cwd,
-                                        ),
-                                      ),
-                                    ),
+                                  : folderLabel(listedSession?.cwd),
                               onOpenDrawer: widget.onOpenDrawer,
                               onNewChat: sessionId == null || isChild
                                   ? null
@@ -2382,13 +2364,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                           : question != null
                                           ? l10n.commonWaitingAnswer
                                           : null,
-                                      placeholder: generate == null
-                                          ? null
-                                          : _editing && !generate.isVideo
-                                          ? l10n.mediaHintEdit
-                                          : generate.isVideo
-                                          ? l10n.mediaHintVideo
-                                          : l10n.mediaHintImage,
+                                      placeholder: generate != null
+                                          ? (_editing && !generate.isVideo
+                                                ? l10n.mediaHintEdit
+                                                : generate.isVideo
+                                                ? l10n.mediaHintVideo
+                                                : l10n.mediaHintImage)
+                                          : currentEngine != CliEngine.dsh
+                                          ? (AppLocale.isEnglish
+                                                ? 'Send input to ${currentEngine.label} terminal...'
+                                                : '向 ${currentEngine.label} 终端发送输入...')
+                                          : null,
                                       onSend: _send,
                                       onSendOptions: chat?.controlReady ?? true ? _sendOptions : null,
                                       voice: _voice,
