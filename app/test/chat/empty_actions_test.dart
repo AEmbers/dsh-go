@@ -70,7 +70,6 @@ Rect _card(WidgetTester tester, String label) =>
 
 bool _cut(WidgetTester tester, String text) => tester.renderObject<RenderParagraph>(find.text(text)).didExceedMaxLines;
 
-
 void main() {
   setUpAll(() async {
     await loadTestFonts();
@@ -370,6 +369,33 @@ void main() {
       await tester.tap(find.text('在「项目」中'));
       await tester.pump();
       expect(opened, 1);
+    });
+
+    testWidgets('a short landscape keeps every suggestion above the composer', (tester) async {
+      await _pumpChat(tester, size: const Size(844, 390));
+      expect(tester.takeException(), isNull);
+      expect(find.byType(WhaleTail), findsNothing);
+      final composer = tester.getRect(find.byType(Composer));
+      for (final s in defaultSuggestions) {
+        await tester.ensureVisible(find.text(s.label));
+        await tester.pump();
+        final card = _card(tester, s.label);
+        expect(card.bottom, lessThanOrEqualTo(composer.top + 0.5), reason: s.label);
+        expect(card.top, greaterThanOrEqualTo(0), reason: s.label);
+      }
+    });
+
+    testWidgets('a short landscape at a larger text size still reaches every card', (tester) async {
+      await _pumpChat(tester, size: const Size(844, 390), textScale: 1.3);
+      expect(tester.takeException(), isNull);
+      final composer = tester.getRect(find.byType(Composer));
+      for (final s in defaultSuggestions) {
+        await tester.ensureVisible(find.text(s.label));
+        await tester.pump();
+        final card = _card(tester, s.label);
+        expect(card.bottom, lessThanOrEqualTo(composer.top + 0.5), reason: s.label);
+        expect(_cut(tester, s.label), isFalse, reason: s.label);
+      }
     });
   });
 

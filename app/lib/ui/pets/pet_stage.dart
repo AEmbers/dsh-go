@@ -85,7 +85,7 @@ abstract final class PetMetrics {
 /// with [PetPerch], panels that should send it away with [PetCover], areas
 /// it keeps out of with [PetAvoid].
 class PetStage extends ConsumerStatefulWidget {
-  const PetStage({super.key, this.sessionId, this.aside = false, required this.child});
+  const PetStage({super.key, this.sessionId, this.aside = false, this.parked = false, required this.child});
 
   /// The conversation the page shows (null: a new chat). The pet reads what
   /// it is doing from here.
@@ -94,6 +94,10 @@ class PetStage extends ConsumerStatefulWidget {
   /// A phone on its side is typing: the bars fold away, the pet stays on
   /// the composer.
   final bool aside;
+
+  /// A short window: the pet's body covers the last row of the empty state,
+  /// so it steps off until there is room again.
+  final bool parked;
   final Widget child;
 
   @override
@@ -196,7 +200,13 @@ class _PetStageState extends ConsumerState<PetStage> {
                 child: KeyedSubtree(key: _content, child: widget.child),
               ),
               Positioned.fill(
-                child: PetLayer(registry: _registry, aside: widget.aside, scrolling: _scrolling, onReveal: _reveal),
+                child: PetLayer(
+                  registry: _registry,
+                  aside: widget.aside,
+                  parked: widget.parked,
+                  scrolling: _scrolling,
+                  onReveal: _reveal,
+                ),
               ),
             ],
           ),
@@ -278,10 +288,20 @@ class _FocusReporterState extends ConsumerState<_FocusReporter> {
 /// The pet itself, over the whole stage. Hit tests only on its body and its
 /// bubble.
 class PetLayer extends ConsumerStatefulWidget {
-  const PetLayer({super.key, required this.registry, this.aside = false, this.scrolling, this.onReveal});
+  const PetLayer({
+    super.key,
+    required this.registry,
+    this.aside = false,
+    this.parked = false,
+    this.scrolling,
+    this.onReveal,
+  });
 
   final PerchRegistry registry;
   final bool aside;
+
+  /// A short window: don't draw the body over the last row of content.
+  final bool parked;
 
   /// The page's list is scrolling (no walks then).
   final ValueListenable<bool>? scrolling;
@@ -478,7 +498,7 @@ class PetLayerState extends ConsumerState<PetLayer> with TickerProviderStateMixi
     }
     final spot = _spot;
     _lastFoot = spot == null ? null : spot.rect.topLeft + Offset(_footX(spot), 0);
-    final shown = _visible && _ready;
+    final shown = _visible && _ready && !widget.parked;
     // Perches lead their links once there is a pet to draw (and keep leading
     // while it fades out when covered or hidden).
     final leading = _ready && _pack != null;
@@ -914,7 +934,7 @@ class PetLayerState extends ConsumerState<PetLayer> with TickerProviderStateMixi
       mirrored.right * s,
       math.min(mirrored.bottom, pack.baseline) * s,
     );
-    final shown = visible && _ready;
+    final shown = visible && _ready && !widget.parked;
     final fadeDuration = AppMotion.of(context, AppMotion.standard);
     // Resume before the first visible fade-in frame; a reversed fade keeps running.
     if (shown) _bodyFullyHidden = false;

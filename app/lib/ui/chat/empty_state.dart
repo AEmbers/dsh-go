@@ -20,7 +20,10 @@ class ChatSuggestion {
       _prompt = prompt,
       _defaultIndex = null;
 
-  const ChatSuggestion._default(this.icon, this._defaultIndex, this.tint) : _label = null, _prompt = null, _detail = null;
+  const ChatSuggestion._default(this.icon, this._defaultIndex, this.tint)
+    : _label = null,
+      _prompt = null,
+      _detail = null;
 
   final IconData icon;
   final SuggestionTint tint;
@@ -153,6 +156,7 @@ class ChatEmptyState extends StatelessWidget {
     this.idle,
     this.now,
     this.suggestions = defaultSuggestions,
+    this.compact = false,
     this.workspace,
     this.onWorkspace,
     this.options,
@@ -199,6 +203,11 @@ class ChatEmptyState extends StatelessWidget {
   final DateTime? now;
   final List<ChatSuggestion> suggestions;
 
+  /// A short window (a phone on its side): drop the decorative whale and the
+  /// large greeting so the suggestion cards fit above the composer, and what
+  /// does not fit can scroll clear of it.
+  final bool compact;
+
   /// Same side margin and width cap as the header pills and the composer.
   static const sideMargin = AppSpace.floatInset;
   static const maxWidth = AppSpace.floatingWidth;
@@ -211,6 +220,9 @@ class ChatEmptyState extends StatelessWidget {
 
   /// The pill or chips → the suggestions.
   static const suggestionsGap = 28.0;
+
+  /// Same gap when [compact] has to spend the height on the cards.
+  static const compactSuggestionsGap = 8.0;
 
   /// The suggestions → the tip line.
   static const tipGap = 6.0;
@@ -229,20 +241,26 @@ class ChatEmptyState extends StatelessWidget {
     final themeStyle = DshThemeStyle.of(context);
     final emptySpec = themeStyle.emptyState;
     final editorial = emptySpec.layout == ThemeEmptyLayout.editorial;
-    final compact = emptySpec.layout == ThemeEmptyLayout.compact;
+    final themeCompact = emptySpec.layout == ThemeEmptyLayout.compact;
+    final shortWindow = compact;
     final textAlign = editorial ? TextAlign.start : TextAlign.center;
     final blockAlign = editorial ? Alignment.centerLeft : Alignment.center;
-    final baseGreeting = (compact ? theme.textTheme.headlineMedium! : theme.textTheme.displaySmall!).copyWith(
-      color: theme.colorScheme.onSurface,
-    );
+    final baseGreeting = (shortWindow
+            ? theme.textTheme.titleLarge!
+            : themeCompact
+            ? theme.textTheme.headlineMedium!
+            : theme.textTheme.displaySmall!)
+        .copyWith(color: theme.colorScheme.onSurface);
     final greetingStyle = emptySpec.useReadingFontForGreeting
         ? themeStyle.readingTextStyle(baseGreeting).copyWith(
-            fontSize: (compact ? 24 : 32) * themeStyle.typography.headingScale,
+            fontSize: (shortWindow ? 22 : (themeCompact ? 24 : 32)) * themeStyle.typography.headingScale,
           )
         : baseGreeting;
-    final effectiveSlotGap = compact ? 10.0 : slotGap;
-    final effectiveOptionsGap = compact ? 8.0 : optionsGap;
-    final effectiveSuggestionsGap = compact ? 14.0 : suggestionsGap;
+    final effectiveSlotGap = (shortWindow || themeCompact) ? 10.0 : slotGap;
+    final effectiveOptionsGap = (shortWindow || themeCompact) ? 8.0 : optionsGap;
+    final effectiveSuggestionsGap = shortWindow
+        ? compactSuggestionsGap
+        : (themeCompact ? 14.0 : suggestionsGap);
     final retry = connected ? null : onReconnect;
     final idle = connected || retry != null ? null : this.idle;
     final subtitle = connected
@@ -302,7 +320,8 @@ class ChatEmptyState extends StatelessWidget {
               // The pet stands on the composer below: one mascot a screen,
               // so the still whale tail fades while the pet is drawn. Its
               // room stays, so nothing moves when the pet comes and goes.
-              if (emptySpec.heroStyle != ThemeHeroStyle.hidden)
+              // A short window drops it: the tail otherwise lands on the cards.
+              if (!shortWindow && emptySpec.heroStyle != ThemeHeroStyle.hidden)
                 enter(
                   Consumer(
                     builder: (context, ref, child) => AnimatedOpacity(
@@ -313,7 +332,7 @@ class ChatEmptyState extends StatelessWidget {
                     ),
                     child: Padding(
                       padding: EdgeInsets.only(
-                        bottom: compact
+                        bottom: themeCompact
                             ? 8
                             : switch (emptySpec.heroStyle) {
                                 ThemeHeroStyle.badge || ThemeHeroStyle.seal => 18,
@@ -323,7 +342,7 @@ class ChatEmptyState extends StatelessWidget {
                       child: onLine(
                         Align(
                           alignment: blockAlign,
-                          child: _buildHero(context, theme, themeStyle, emptySpec, compact: compact),
+                          child: _buildHero(context, theme, themeStyle, emptySpec, compact: themeCompact),
                         ),
                       ),
                     ),
@@ -380,7 +399,7 @@ class ChatEmptyState extends StatelessWidget {
                   connected &&
                   (suggestions.isNotEmpty || tipList.isNotEmpty))
                 Padding(
-                  padding: EdgeInsets.only(top: compact ? 14 : 24),
+                  padding: EdgeInsets.only(top: shortWindow ? compactSuggestionsGap : (themeCompact ? 14 : 24)),
                   child: ExpansionTile(
                     tilePadding: editorial ? const EdgeInsets.symmetric(horizontal: _editorialInset) : null,
                     shape: const Border(),

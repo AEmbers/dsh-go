@@ -1841,8 +1841,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     // A phone on its side with the keyboard up keeps a strip of chat: the
     // header and the dock step aside until the keyboard goes, so the latest
     // messages stay in sight above the composer.
-    final typing =
-        MediaQuery.sizeOf(context).height < WindowClass.compactHeight && MediaQuery.viewInsetsOf(context).bottom > 0;
+    final shortWindow = MediaQuery.sizeOf(context).height < WindowClass.compactHeight;
+    final typing = shortWindow && MediaQuery.viewInsetsOf(context).bottom > 0;
     // 「自动允许中」/「完全权限」 ride on the bar right above the composer, not a
     // row of their own: beside the activity strip while a reply generates, at
     // the start of the capsule row otherwise. Their own row only where neither
@@ -1881,6 +1881,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
             child: PetStage(
               sessionId: sessionId,
               aside: typing,
+              parked: shortWindow,
               child: CustomMultiChildLayout(
                 delegate: _ChatLayout(_veilHeight),
                 children: [
@@ -1899,10 +1900,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                           )
                         : sessionId == null || idleBlank
                         ? Padding(
-                            padding: EdgeInsets.only(top: headerHeight, bottom: _ChatLayout.overlap),
+                            // On a short window the pet used to stand in this
+                            // band and cover the last cards. It is parked, and
+                            // the column stops above that band.
+                            padding: EdgeInsets.only(
+                              top: headerHeight,
+                              bottom: _ChatLayout.overlap + (shortWindow ? 56 : 0),
+                            ),
                             child: Align(
-                              alignment: const Alignment(0, -0.25),
+                              alignment: shortWindow ? Alignment.topCenter : const Alignment(0, -0.25),
                               child: SingleChildScrollView(
+                                padding: EdgeInsets.only(bottom: shortWindow ? 8 : 0),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -1911,6 +1919,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     if (failureCard)
                                       const EngineFailureCard(padding: EdgeInsets.fromLTRB(16, 0, 16, 20)),
                                     ChatEmptyState(
+                                      compact: shortWindow,
                                       connected: connected,
                                       suggestions: ref.watch(settingsProvider.select((s) => s.chatSuggestions))
                                           ? defaultSuggestions
