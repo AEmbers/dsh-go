@@ -54,6 +54,8 @@ void main() {
     await _pump(tester, _wide);
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('workbench-tabs')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-tab-count')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-refresh')), findsOneWidget);
     expect(find.byKey(const ValueKey('workbench-mode')), findsOneWidget);
     expect(find.byKey(const ValueKey('drawer-list-scope')), findsOneWidget);
     expect(find.text('本机'), findsWidgets);
@@ -62,8 +64,13 @@ void main() {
     expect(find.descendant(of: drawer, matching: find.text('给设置页加深色模式')), findsOneWidget);
     // The open conversation stays listed while 历史 hides other running rows.
     expect(find.descendant(of: drawer, matching: find.text('修复登录重复提交')), findsOneWidget);
-    final mode = tester.getRect(find.byKey(const ValueKey('workbench-mode')));
-    expect(mode.top, greaterThan(tester.getRect(find.byKey(const ValueKey('chat-title-pill'))).bottom - 1));
+    final tabsRect = tester.getRect(find.byKey(const ValueKey('workbench-tabs')));
+    final pillRect = tester.getRect(find.byKey(const ValueKey('chat-title-pill')));
+    final modeRect = tester.getRect(find.byKey(const ValueKey('workbench-mode')));
+    expect(tabsRect.bottom, lessThanOrEqualTo(pillRect.top + 1));
+    expect(modeRect.top, greaterThan(pillRect.bottom - 1));
+    expect(find.descendant(of: find.byKey(const ValueKey('workbench-tab-count')), matching: find.text('1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-tab-running-s1')), findsOneWidget);
 
     await tester.tap(find.descendant(of: find.byKey(const ValueKey('drawer-list-scope')), matching: find.text('进行中')));
     await tester.pump();
@@ -83,6 +90,24 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('workbench-cli-gate')), findsOneWidget);
     expect(find.byType(TerminalPage), findsNothing);
+  });
+
+  testWidgets('unselected running tabs show a busy dot and the count menu switches tabs', (tester) async {
+    await _pump(tester, _wide);
+    final container = ProviderScope.containerOf(tester.element(find.byType(ChatScreen)));
+    container.read(openSessionTabsProvider.notifier).newChat();
+    await tester.pump();
+
+    expect(find.descendant(of: find.byKey(const ValueKey('workbench-tab-count')), matching: find.text('2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-tab-running-s1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-tab-close-s1')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('workbench-tab-count')));
+    await pumpFrames(tester, 6);
+    await tester.tap(find.byKey(const ValueKey('workbench-tab-menu-s1')));
+    await pumpFrames(tester, 6);
+    expect(container.read(currentSessionProvider), 's1');
+    expect(find.byKey(const ValueKey('workbench-tab-close-s1')), findsOneWidget);
   });
 
   testWidgets('CLI uses the session terminal and does not offer a back route', (tester) async {

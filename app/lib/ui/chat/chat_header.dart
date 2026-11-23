@@ -53,17 +53,23 @@ class ChatHeader extends ConsumerStatefulWidget {
     super.key,
     required this.title,
     required this.status,
+    this.leading,
     this.detail,
     this.trailing,
     this.onOpenDrawer,
     this.onTitleTap,
     this.onNewChat,
     this.onCall,
+    this.onRefresh,
+    this.includeTopPadding = true,
     this.scrolledUnder,
   });
 
   final String title;
   final HeaderStatus status;
+
+  /// Optional glyph placed inside the title pill before [title] (wide workbench).
+  final Widget? leading;
 
   /// What follows the status under the title (a phone: the workspace). Shortens first.
   final String? detail;
@@ -78,6 +84,13 @@ class ChatHeader extends ConsumerStatefulWidget {
 
   /// 「语音通话」 with this conversation; the key sits before 新对话's.
   final VoidCallback? onCall;
+
+  /// Refresh action placed at the trailing edge of the header (wide workbench).
+  final VoidCallback? onRefresh;
+
+  /// Whether to reserve `MediaQuery.paddingOf(context).top` above the bar.
+  /// Wide workbench sets this to false when the tab strip sits above it.
+  final bool includeTopPadding;
 
   /// Whether content has scrolled under the bar, 0..1. Drives the top fade:
   /// at rest the page is one clean surface, the fade only appears once there is
@@ -131,13 +144,13 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
     final dsh = DshColors.of(context);
     final themeStyle = DshThemeStyle.of(context);
     final headerButtonStyle = themeStyle.headerGlass(colors);
-    final top = MediaQuery.paddingOf(context).top;
+    final top = widget.includeTopPadding ? MediaQuery.paddingOf(context).top : 0.0;
     final barHeight = ChatHeader.barHeightOf(context);
     final pillHeight = ChatHeader.pillHeightOf(context);
     final baseTitleStyle = theme.textTheme.titleSmall?.copyWith(fontSize: 15, height: 1.3);
     final titleStyle = baseTitleStyle == null ? null : themeStyle.headerTitleTextStyle(baseTitleStyle);
     final statusStyle = theme.textTheme.labelSmall?.copyWith(fontSize: 11, height: 1.25);
-    final titleFloor = _titleFloor(context, statusStyle);
+    final titleFloor = _titleFloor(context, statusStyle) + (widget.leading != null ? 26.0 : 0.0);
     // The schedule clock widens the pill by this much over its plain right
     // padding, while the bar can afford it (see [_HeaderRow]).
     final scheduled = ref.watch(headerSchedulesProvider.select((s) => s.shown));
@@ -145,6 +158,70 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
     // Wide windows: next to the rail (it has its own ≡) the key goes, and ≡
     // says what it does there (fold or unfold the list).
     final chrome = AdaptiveChrome.maybeOf(context);
+    final titleColumn = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          HeaderTitleText(widget.title, style: titleStyle),
+          _StatusLine(
+            status: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                StatusDot(tone: widget.status.tone, size: _dot),
+                const SizedBox(width: _dotGap),
+                Flexible(
+                  child: _StatusLabel(
+                    status: widget.status,
+                    style: statusStyle?.copyWith(
+                      color: widget.status.tone == StatusTone.warn ? dsh.warning : dsh.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            detail: switch (widget.detail) {
+              final detail? => FluidTextSwap(
+                value: detail,
+                child: Text(
+                  ' · $detail',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: statusStyle?.copyWith(color: dsh.textTertiary),
+                ),
+              ),
+              null => const SizedBox.shrink(),
+            },
+          ),
+        ],
+      ),
+    );
+    Widget roundKey({
+      required Key key,
+      required IconData icon,
+      required double size,
+      required String tooltip,
+      required VoidCallback? onTap,
+    }) => Padding(
+      padding: const EdgeInsets.only(left: HeaderTrailingSlot.gap),
+      child: SizedBox.square(
+        key: key,
+        dimension: 44,
+        child: GlassSurface(
+          tier: GlassTier.chrome,
+          style: headerButtonStyle,
+          circle: true,
+          grouped: true,
+          onTap: onTap,
+          child: Tooltip(
+            message: tooltip,
+            child: Center(child: Icon(icon, size: size, color: colors.onSurface)),
+          ),
+        ),
+      ),
+    );
     // The stack is only as tall as the bar; the fade runs 12dp past it, so it
     // must not clip (a clipped fade is a hard line right under the pills).
     return Stack(
@@ -208,7 +285,7 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                         key: const ValueKey('chat-title-pill'),
                         constraints: BoxConstraints(minHeight: pillHeight),
                         child: Padding(
-                          padding: const EdgeInsets.only(left: _pillPadding),
+                          padding: EdgeInsets.only(left: widget.leading == null ? _pillPadding : 12),
                           // A new title or status, or the clock coming and
                           // going, glides the pill to its new width instead
                           // of snapping.
@@ -218,48 +295,16 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                             alignment: Alignment.centerLeft,
                             child: _PillContent(
                               textFloor: titleFloor - _pillPadding * 2,
-                              text: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    HeaderTitleText(widget.title, style: titleStyle),
-                                    _StatusLine(
-                                      status: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          StatusDot(tone: widget.status.tone, size: _dot),
-                                          const SizedBox(width: _dotGap),
-                                          Flexible(
-                                            child: _StatusLabel(
-                                              status: widget.status,
-                                              style: statusStyle?.copyWith(
-                                                color: widget.status.tone == StatusTone.warn
-                                                    ? dsh.warning
-                                                    : dsh.textTertiary,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      detail: switch (widget.detail) {
-                                        final detail? => FluidTextSwap(
-                                          value: detail,
-                                          child: Text(
-                                            ' · $detail',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: statusStyle?.copyWith(color: dsh.textTertiary),
-                                          ),
-                                        ),
-                                        null => const SizedBox.shrink(),
-                                      },
+                              text: widget.leading == null
+                                  ? titleColumn
+                                  : Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        widget.leading!,
+                                        const SizedBox(width: 8),
+                                        Flexible(child: titleColumn),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                              ),
                               end: HeaderScheduleCap(pillHeight: pillHeight),
                             ),
                           ),
@@ -276,54 +321,40 @@ class _ChatHeaderState extends ConsumerState<ChatHeader> {
                       null => null,
                     },
                   ),
-                  // 语音通话, then 新对话: it mirrors the menu key and is gone on
-                  // the new-chat screen. On a wide window the key that unfolds
-                  // 对话详情 follows them.
+                  // 语音通话, 新对话, then 刷新 (wide workbench): it mirrors the
+                  // menu key and is gone on the new-chat screen. On a wide
+                  // window the key that unfolds 对话详情 follows them.
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (widget.onCall case final onCall?)
-                        Padding(
-                          padding: const EdgeInsets.only(left: HeaderTrailingSlot.gap),
-                          child: SizedBox.square(
-                            key: const ValueKey('chat-call'),
-                            dimension: 44,
-                            child: GlassSurface(
-                              tier: GlassTier.chrome,
-                              style: headerButtonStyle,
-                              circle: true,
-                              grouped: true,
-                              onTap: onCall,
-                              child: Tooltip(
-                                message: l10n.speechCallTile,
-                                child: Center(child: Icon(AppIcons.call, size: 21, color: colors.onSurface)),
-                              ),
-                            ),
-                          ),
+                        roundKey(
+                          key: const ValueKey('chat-call'),
+                          icon: AppIcons.call,
+                          size: 21,
+                          tooltip: l10n.speechCallTile,
+                          onTap: onCall,
                         ),
                       SmoothSize(
                         duration: AppMotion.of(context, AppMotion.quick),
                         child: widget.onNewChat == null
                             ? const SizedBox.shrink()
-                            : Padding(
-                                padding: const EdgeInsets.only(left: HeaderTrailingSlot.gap),
-                                child: SizedBox.square(
-                                  key: const ValueKey('chat-new-chat'),
-                                  dimension: 44,
-                                  child: GlassSurface(
-                                    tier: GlassTier.chrome,
-                                    style: headerButtonStyle,
-                                    circle: true,
-                                    grouped: true,
-                                    onTap: widget.onNewChat,
-                                    child: Tooltip(
-                                      message: l10n.commonNewChat,
-                                      child: Center(child: Icon(AppIcons.newChat, size: 22, color: colors.onSurface)),
-                                    ),
-                                  ),
-                                ),
+                            : roundKey(
+                                key: const ValueKey('chat-new-chat'),
+                                icon: AppIcons.newChat,
+                                size: 22,
+                                tooltip: l10n.commonNewChat,
+                                onTap: widget.onNewChat,
                               ),
                       ),
+                      if (widget.onRefresh case final onRefresh?)
+                        roundKey(
+                          key: const ValueKey('workbench-refresh'),
+                          icon: AppIcons.refresh,
+                          size: 20,
+                          tooltip: l10n.shellWorkbenchRefresh,
+                          onTap: onRefresh,
+                        ),
                       const DetailPanelKey(),
                     ],
                   ),
