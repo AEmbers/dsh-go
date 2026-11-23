@@ -89,6 +89,11 @@ class _HttpLists {
       });
       return;
     }
+    if (request.method != 'POST') {
+      request.response.statusCode = 404;
+      await request.response.close();
+      return;
+    }
     final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
     if (body['method'] is! String) {
       request.response.statusCode = 404;

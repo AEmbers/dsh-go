@@ -3,7 +3,7 @@
 // rest by day; or, under a status filter, just the matches. Loading, error
 // and empty-host states stay with the drawer (sessions_drawer.dart).
 
-import 'package:dsh_client/dsh_client.dart' show SessionSummary;
+import 'package:dsh_client/dsh_client.dart' show CliSessionSummary, SessionSummary;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,6 +13,7 @@ import '../../../state/session_attention_state.dart';
 import '../../../state/session_created_state.dart';
 import '../../../state/sessions_state.dart';
 import '../../../state/workspaces_state.dart';
+import '../../common/cli_engine_icon.dart';
 import '../../common/empty_view.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
@@ -89,7 +90,11 @@ class DrawerConversationList extends ConsumerWidget {
           current: id == current,
           leading: !wide
               ? null
-              : Icon(AppIcons.chat, size: 16, color: id == current ? scheme.primary : dsh.textTertiary),
+              : CliEngineIcon(
+                  engine: s.cliEngine,
+                  size: 16,
+                  dshColor: id == current ? scheme.primary : dsh.textTertiary,
+                ),
           pending: readOnly ? null : pending[id],
           unread: !readOnly && unread.contains(id),
           pinned: inFolder && pinned.contains(id),
@@ -161,6 +166,10 @@ class DrawerConversationList extends ConsumerWidget {
               childrenBuilder: () => [for (final s in items) tile(s, inFolder: true)],
             ),
           );
+        case AgentChatsBlock(:final items):
+          const key = ValueKey('agent-chats-label');
+          add(key, (_) => DrawerEyebrow(AppLocale.isEnglish ? 'Agent chats' : '智能体对话', key: key));
+          addSessions(items);
         case DayBlock(:final day, :final items):
           final key = ValueKey('day-${day.name}');
           add(key, (_) => DrawerEyebrow(sessionDayLabels[day]!, key: key));

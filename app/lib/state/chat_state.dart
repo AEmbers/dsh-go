@@ -16,6 +16,7 @@ import 'models_state.dart';
 import 'notify_state.dart' show appForegroundProvider;
 import 'run_pulse.dart';
 import 'sessions_state.dart';
+import 'workbench_bridge_state.dart';
 
 /// How a message sent while a turn is running reaches the agent.
 enum SendMode {
@@ -471,6 +472,11 @@ class ChatController extends Notifier<ChatState> {
   StreamSubscription<DshConnectionState>? _states;
   Timer? _flush;
   Timer? _stopTimeout;
+  Timer? _cliPollTimer;
+  List<ChatItem> _cliItems = const [];
+  ModelSelection? _cliModel;
+  String? _cliCwd;
+  bool _cliRunning = false;
   _ChatOperation? _stoppingOperation;
   bool _dirty = false;
   ModelSelection? _model;
@@ -621,6 +627,8 @@ class ChatController extends Notifier<ChatState> {
       release?.cancel();
       _flush?.cancel();
       _flush = null;
+      _cliPollTimer?.cancel();
+      _cliPollTimer = null;
       _stopTimeout?.cancel();
       _awayTimer?.cancel();
       unawaited(_sub?.cancel());
@@ -628,6 +636,14 @@ class ChatController extends Notifier<ChatState> {
     });
     // Not connected is a screen state (the composer explains it), not an
     // error. What was loaded stays until a new snapshot replaces it.
+    final cliRef = CliSessionRef.parse(sessionId);
+    if (cliRef != null) {
+      if (client == null) {
+        return ChatState(items: _cliItems, running: false, loading: false, model: _cliModel);
+      }
+      unawaited(_syncCliSession(client, cliRef));
+      return ChatState(items: _cliItems, running: _cliRunning, loading: _cliItems.isEmpty, model: _cliModel);
+    }
     if (client == null) return _retained(loading: false);
     _sameClock = ref.read(activeConnectionProvider).value!.isLocal;
     if (_sameClock) {
@@ -748,12 +764,120 @@ class ChatController extends Notifier<ChatState> {
     return false;
   }
 
+  Future<bool> _syncCliSession(DshClient client, CliSessionRef cliRef) async {
+    _cliPollTimer?.cancel();
+    _cliPollTimer = null;
+    try {
+      final snap = await client.readWorkbenchBridgeMessages(cliRef.engine, cliRef.rawId);
+      if (!ref.mounted || !identical(client, _client)) return false;
+      _cliItems = cliSnapshotToChatItems(snap);
+      _cliCwd = snap.cwd ?? _cliCwd;
+      _cliRunning = snap.running;
+      if (snap.model case final modelName? when modelName.isNotEmpty) {
+        _cliModel = ModelSelection(provider: cliRef.engine.wire, model: modelName);
+      }
+      state = ChatState(
+        items: _cliItems,
+        running: _cliRunning,
+        loading: false,
+        resyncing: false,
+        connection: client.mux.state,
+        model: _cliModel,
+      );
+      if (_cliRunning) {
+        _cliPollTimer = Timer(const Duration(milliseconds: 900), () {
+          if (ref.mounted && identical(client, _client)) {
+            unawaited(_syncCliSession(client, cliRef));
+          }
+        });
+      }
+      return true;
+    } catch (error) {
+      if (!ref.mounted || !identical(client, _client)) return false;
+      state = ChatState(
+        items: _cliItems,
+        running: false,
+        loading: false,
+        resyncing: false,
+        error: error.toString(),
+        connection: client.mux.state,
+        model: _cliModel,
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _sendCliPrompt(DshClient client, CliSessionRef cliRef, String body) async {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return false;
+    final optimistic = [
+      ..._cliItems,
+      UserChatItem(
+        seq: _cliItems.length + 1,
+        time: DateTime.now(),
+        text: trimmed,
+        images: const [],
+        files: const [],
+      ),
+    ];
+    _cliItems = optimistic;
+    _cliRunning = true;
+    state = ChatState(
+      items: _cliItems,
+      running: true,
+      loading: false,
+      connection: client.mux.state,
+      model: _cliModel,
+    );
+    try {
+      await client.sendWorkbenchBridgePrompt(
+        engine: cliRef.engine,
+        rawSessionId: cliRef.rawId,
+        cwd: _cliCwd,
+        prompt: trimmed,
+        model: _cliModel?.model,
+      );
+      if (!ref.mounted || !identical(client, _client)) return false;
+      unawaited(_syncCliSession(client, cliRef));
+      unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+      return true;
+    } catch (error) {
+      if (!ref.mounted || !identical(client, _client)) return false;
+      _cliRunning = false;
+      state = ChatState(
+        items: _cliItems,
+        running: false,
+        loading: false,
+        error: error.toString(),
+        connection: client.mux.state,
+        model: _cliModel,
+      );
+      return false;
+    }
+  }
+
+  Future<void> _cancelCliRun(DshClient client, CliSessionRef cliRef) async {
+    try {
+      await client.abortWorkbenchBridgeRun(cliRef.engine, cliRef.rawId);
+    } catch (_) {
+      // 忽略中止瞬时报错，交由后续刷新校准状态
+    }
+    if (!ref.mounted || !identical(client, _client)) return;
+    await _syncCliSession(client, cliRef);
+    unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+  }
+
   /// Reopens the actual follow, even when the mux itself never disconnected.
   /// Deduplicated and bounded; only an applied fresh snapshot is success.
   Future<bool> resync() {
     if (_resyncFuture case final existing?) return existing;
     final client = _client;
     if (client == null) return Future.value(false);
+    final cliRef = CliSessionRef.parse(sessionId);
+    if (cliRef != null) {
+      state = state.copyWith(resyncing: true);
+      return _syncCliSession(client, cliRef);
+    }
     final owner = ref;
     final attempt = _resyncOwner = Object();
     state = state.copyWith(resyncing: true);
@@ -1330,6 +1454,10 @@ class ChatController extends Notifier<ChatState> {
     if (client == null || (trimmed.isEmpty && attachments.isEmpty)) {
       return false;
     }
+    final cliRef = CliSessionRef.parse(sessionId);
+    if (cliRef != null) {
+      return _sendCliPrompt(client, cliRef, verbatim ? text : trimmed);
+    }
     final body = verbatim ? text : trimmed;
     if (!_canControl && (mode == SendMode.interrupt || !await waitForSync())) return false;
     if (!ref.mounted || !identical(client, _client) || !_canControl) return false;
@@ -1797,7 +1925,13 @@ class ChatController extends Notifier<ChatState> {
   /// back (the screen returns it to the composer).
   Future<List<PendingPrompt>> cancel() async {
     final client = _client;
-    if (client == null || !_canControl || !state.running || state.stopping) return const [];
+    if (client == null) return const [];
+    final cliRef = CliSessionRef.parse(sessionId);
+    if (cliRef != null) {
+      await _cancelCliRun(client, cliRef);
+      return const [];
+    }
+    if (!_canControl || !state.running || state.stopping) return const [];
     final operation = _ChatOperation(ref, client, _syncScope);
     if (!await _stop(operation, failure: appL10n.stateChatStopFailed) || !_currentOperation(operation)) {
       return const [];
