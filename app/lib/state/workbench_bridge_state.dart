@@ -70,6 +70,17 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
   DshClient? _owner;
   var _generation = 0;
   Timer? _pollTimer;
+  Completer<void>? _cancelCompleter;
+
+  void _cancelPending() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    final completer = _cancelCompleter;
+    _cancelCompleter = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+  }
 
   @override
   List<SessionSummary> build() {
@@ -79,13 +90,11 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
       _etag = null;
       _generation += 1;
     }
-    _pollTimer?.cancel();
-    _pollTimer = null;
+    _cancelPending();
 
     ref.onDispose(() {
-      _pollTimer?.cancel();
-      _pollTimer = null;
       _generation += 1;
+      _cancelPending();
     });
 
     if (client == null || client.carrier is! DshHttpCarrier) {
@@ -114,8 +123,15 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
   }
 
   Future<void> _fetch(DshClient client, int gen) async {
+    final prev = _cancelCompleter;
+    if (prev != null && !prev.isCompleted) prev.complete();
+    final cancel = Completer<void>.sync();
+    _cancelCompleter = cancel;
     try {
-      final result = await client.readWorkbenchBridgeSessions(ifNoneMatch: _etag);
+      final result = await client.readWorkbenchBridgeSessions(
+        ifNoneMatch: _etag,
+        cancelSignal: cancel.future,
+      );
       if (!ref.mounted || !identical(client, _owner) || gen != _generation) return;
       if (result != null) {
         _etag = result.etag;
@@ -133,6 +149,8 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
       if (ref.mounted && identical(client, _owner) && gen == _generation) {
         _schedulePoll(client, gen);
       }
+    } finally {
+      if (identical(_cancelCompleter, cancel)) _cancelCompleter = null;
     }
   }
 }

@@ -304,6 +304,7 @@ extension WorkbenchBridgeApi on DshClient {
   Future<WorkbenchBridgeSessions?> readWorkbenchBridgeSessions({
     String? ifNoneMatch,
     Duration timeout = const Duration(seconds: 15),
+    Future<void>? cancelSignal,
   }) async {
     final connection = _bridgeConnection(workbenchBridgeSessionsPath);
     final response = await _bridgeGet(
@@ -312,6 +313,7 @@ extension WorkbenchBridgeApi on DshClient {
       ifNoneMatch: ifNoneMatch,
       maxBytes: _maxReplyBytes,
       timeout: timeout,
+      cancelSignal: cancelSignal,
     );
     if (response.statusCode == 304) return null;
     if (response.statusCode == 404 || response.statusCode == 405 || response.statusCode == 501 || response.statusCode == 503) {
@@ -457,13 +459,43 @@ Future<_BridgeResponse> _bridgeGet(
   String? ifNoneMatch,
   required int maxBytes,
   required Duration timeout,
+  Future<void>? cancelSignal,
 }) async {
   final http = HttpClient()
     ..connectionTimeout = connection.connectTimeout
     ..autoUncompress = true;
   HttpClientRequest? request;
+  var cancelled = false;
+  var timedOut = false;
+  var finished = false;
+  Timer? timer;
+
+  void abortAll(Object reason) {
+    request?.abort(reason);
+    http.close(force: true);
+  }
+
+  timer = Timer(timeout, () {
+    if (finished || cancelled) return;
+    timedOut = true;
+    abortAll(TimeoutException('GET ${uri.path} timed out', timeout));
+  });
+
+  if (cancelSignal != null) {
+    unawaited(
+      cancelSignal.then((_) {
+        if (finished || timedOut || cancelled) return;
+        cancelled = true;
+        timer?.cancel();
+        abortAll(const DshTransportException('GET aborted'));
+      }, onError: (_) {}),
+    );
+  }
+
   try {
+    if (cancelled) throw const DshTransportException('GET aborted');
     request = await http.openUrl('GET', uri);
+    if (cancelled) throw const DshTransportException('GET aborted');
     final req = request;
     req.followRedirects = false;
     if (connection.hostHeader case final host?) {
@@ -479,9 +511,9 @@ Future<_BridgeResponse> _bridgeGet(
     }
     req.headers.set(HttpHeaders.acceptHeader, 'application/json');
     if (ifNoneMatch != null) req.headers.set(HttpHeaders.ifNoneMatchHeader, ifNoneMatch);
-    final response = await req.close().timeout(timeout);
+    final response = await req.close();
     final builder = BytesBuilder(copy: false);
-    await for (final chunk in response.timeout(timeout)) {
+    await for (final chunk in response) {
       if (builder.length + chunk.length > maxBytes) {
         throw DshProtocolException('GET ${uri.path}: response exceeds $maxBytes bytes');
       }
@@ -493,13 +525,22 @@ Future<_BridgeResponse> _bridgeGet(
       etag: response.headers.value(HttpHeaders.etagHeader),
     );
   } on TimeoutException catch (error) {
-    request?.abort(error);
     throw DshTransportException('GET ${uri.path} timed out', error);
   } on SocketException catch (error) {
+    if (timedOut) throw DshTransportException('GET ${uri.path} timed out', error);
+    throw DshTransportException('GET ${uri.path} failed: ${error.message}', error);
+  } on HttpException catch (error) {
+    if (timedOut) throw DshTransportException('GET ${uri.path} timed out', error);
     throw DshTransportException('GET ${uri.path} failed: ${error.message}', error);
   } on HandshakeException catch (error) {
     throw DshTransportException('TLS handshake failed: ${error.message}', error);
+  } catch (error) {
+    if (timedOut) throw DshTransportException('GET ${uri.path} timed out', error);
+    if (cancelled) throw DshTransportException('GET ${uri.path} aborted', error);
+    rethrow;
   } finally {
+    finished = true;
+    timer.cancel();
     http.close(force: true);
   }
 }
