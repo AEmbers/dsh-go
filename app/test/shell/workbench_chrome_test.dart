@@ -54,7 +54,7 @@ void main() {
     await _pump(tester, _wide);
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('workbench-tabs')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workbench-meta')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-mode')), findsOneWidget);
     expect(find.byKey(const ValueKey('drawer-list-scope')), findsOneWidget);
     expect(find.text('本机'), findsWidgets);
 
@@ -65,7 +65,7 @@ void main() {
     final mode = tester.getRect(find.byKey(const ValueKey('workbench-mode')));
     expect(mode.top, greaterThan(tester.getRect(find.byKey(const ValueKey('chat-title-pill'))).bottom - 1));
 
-    await tester.tap(find.descendant(of: find.byKey(const ValueKey('drawer-list-scope')), matching: find.text('运行中')));
+    await tester.tap(find.descendant(of: find.byKey(const ValueKey('drawer-list-scope')), matching: find.text('进行中')));
     await tester.pump();
     expect(find.descendant(of: drawer, matching: find.text('修复登录重复提交')), findsOneWidget);
     expect(find.descendant(of: drawer, matching: find.text('给设置页加深色模式')), findsNothing);
@@ -79,7 +79,7 @@ void main() {
     expect(container.read(sessionsProvider).value!.map((s) => s.sessionId), contains('s1'));
     expect(find.byKey(const ValueKey('workbench-tab-new')), findsOneWidget);
 
-    await tester.tap(find.descendant(of: find.byKey(const ValueKey('workbench-mode')), matching: find.text('命令行')));
+    await tester.tap(find.descendant(of: find.byKey(const ValueKey('workbench-mode')), matching: find.text('CLI')));
     await tester.pump();
     expect(find.byKey(const ValueKey('workbench-cli-gate')), findsOneWidget);
     expect(find.byType(TerminalPage), findsNothing);
@@ -87,7 +87,7 @@ void main() {
 
   testWidgets('CLI uses the session terminal and does not offer a back route', (tester) async {
     await _pump(tester, _wide);
-    await tester.tap(find.descendant(of: find.byKey(const ValueKey('workbench-mode')), matching: find.text('命令行')));
+    await tester.tap(find.descendant(of: find.byKey(const ValueKey('workbench-mode')), matching: find.text('CLI')));
     await tester.pump();
     expect(find.byType(TerminalPage), findsOneWidget);
     expect(find.byKey(const ValueKey('terminal-back')), findsNothing);

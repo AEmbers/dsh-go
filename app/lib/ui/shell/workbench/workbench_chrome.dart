@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT
 // See THIRD_PARTY_NOTICES.md.
 //
-// The wide window's conversation column: open tabs, the live connection and
-// workspace, then 对话 / 命令行. Phone layout does not build this.
+// The wide window's conversation column: open tabs, then 对话 / CLI.
+// The title pill above this bar carries the connection and workspace.
+// Phone layout does not build this.
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
@@ -11,12 +12,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/l10n.dart';
 import '../../../state/chat_state.dart';
-import '../../../state/connection_state.dart';
 import '../../../state/sessions_state.dart';
 import '../../../state/workbench_state.dart';
-import '../../../state/workspace_state.dart';
-import '../../../state/workspaces_state.dart';
-import '../../chat/model_sheet.dart';
 import '../../common/empty_view.dart';
 import '../../common/segmented_pill.dart';
 import '../../theme/app_icons.dart';
@@ -26,28 +23,21 @@ import '../sessions_drawer.dart' show sessionTitle;
 /// The chat list's top inset adds this to the header so messages start
 /// under the bar.
 class WorkbenchChrome extends ConsumerWidget {
-  const WorkbenchChrome({super.key, required this.modelSelection, required this.onModelSelected});
+  const WorkbenchChrome({super.key});
 
-  static const tabRow = 44.0;
-  static const metaRow = 44.0;
+  static const tabRow = 40.0;
   static const modeRow = 40.0;
-  static const gap = 6.0;
-  static const extent = tabRow + gap + metaRow + gap + modeRow + gap;
-
-  final ModelSelection? modelSelection;
-  final ValueChanged<ModelSelection> onModelSelected;
+  static const gap = 8.0;
+  static const extent = tabRow + gap + modeRow + gap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
-    final scheme = Theme.of(context).colorScheme;
     final tabs = ref.watch(openSessionTabsProvider);
     final current = ref.watch(currentSessionProvider);
     final sessions = ref.watch(sessionsProvider).asData?.value ?? const <SessionSummary>[];
     final titles = {for (final session in sessions) session.sessionId: sessionTitle(session)};
     final surface = ref.watch(workbenchSurfaceProvider);
-    final connection = ref.watch(activeConnectionProvider).asData?.value;
-    final workspace = _workspace(ref, current);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -85,35 +75,16 @@ class WorkbenchChrome extends ConsumerWidget {
                 ),
                 const SizedBox(width: 4),
                 _IconKey(
-                  key: const ValueKey('workbench-new-chat'),
-                  icon: AppIcons.add,
-                  tooltip: l10n.commonNewChat,
-                  onPressed: () => ref.read(openSessionTabsProvider.notifier).newChat(),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: gap),
-          SizedBox(
-            key: const ValueKey('workbench-meta'),
-            height: metaRow,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    [connection?.label ?? l10n.commonNotConnected, ?workspace].join(l10n.viewListSeparator),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ModelChip(selection: modelSelection, onSelected: onModelSelected, grouped: true),
-                _IconKey(
                   key: const ValueKey('workbench-refresh'),
                   icon: AppIcons.refresh,
                   tooltip: l10n.shellWorkbenchRefresh,
                   onPressed: () => _refresh(ref),
+                ),
+                _IconKey(
+                  key: const ValueKey('workbench-new-chat'),
+                  icon: AppIcons.add,
+                  tooltip: l10n.commonNewChat,
+                  onPressed: () => ref.read(openSessionTabsProvider.notifier).newChat(),
                 ),
               ],
             ),
@@ -125,8 +96,8 @@ class WorkbenchChrome extends ConsumerWidget {
               key: const ValueKey('workbench-mode'),
               height: 36,
               segments: [
-                PillSegment(WorkbenchSurface.chat, l10n.shellWorkbenchChat),
-                PillSegment(WorkbenchSurface.cli, l10n.shellWorkbenchCli),
+                PillSegment(WorkbenchSurface.chat, l10n.shellWorkbenchChat, icon: AppIcons.chat),
+                PillSegment(WorkbenchSurface.cli, l10n.shellWorkbenchModeCli, icon: AppIcons.terminal),
               ],
               selected: surface,
               onChanged: (next) => ref.read(workbenchSurfaceProvider.notifier).show(next),
@@ -136,17 +107,6 @@ class WorkbenchChrome extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  String? _workspace(WidgetRef ref, String? sessionId) {
-    if (sessionId != null) {
-      final cwd = ref.watch(workspaceRootProvider(sessionId));
-      if (cwd != null && cwd.isNotEmpty) return cwd;
-    }
-    final selected = ref.watch(selectedWorkspaceProvider);
-    if (selected == null) return null;
-    final title = workspaceTitle(selected);
-    return title.isEmpty ? null : title;
   }
 
   Future<void> _refresh(WidgetRef ref) async {
@@ -177,23 +137,27 @@ class _TabChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final scheme = Theme.of(context).colorScheme;
-    final background = selected ? scheme.primaryContainer : scheme.surface.withValues(alpha: 0.72);
-    final foreground = selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant;
+    final background = selected ? scheme.surface : scheme.surface.withValues(alpha: 0.55);
+    final foreground = selected ? scheme.onSurface : scheme.onSurfaceVariant;
     return Padding(
-      padding: const EdgeInsets.only(right: 6, top: 4, bottom: 4),
+      padding: const EdgeInsets.only(right: 6, top: 2, bottom: 2),
       child: Material(
         color: background,
-        shape: const StadiumBorder(),
+        elevation: selected ? 0.5 : 0,
+        shadowColor: Colors.black26,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 180),
+            constraints: const BoxConstraints(maxWidth: 220),
             child: Padding(
-              padding: EdgeInsets.only(left: 12, right: onClose == null ? 12 : 4),
+              padding: EdgeInsets.only(left: 8, right: onClose == null ? 10 : 2),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Icon(AppIcons.chat, size: 14, color: foreground),
+                  const SizedBox(width: 6),
                   Flexible(
                     child: Text(
                       label,

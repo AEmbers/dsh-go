@@ -13,9 +13,12 @@ import '../theme/theme.dart';
 
 /// One option of a [SegmentedPill].
 class PillSegment<T> {
-  const PillSegment(this.value, this.label);
+  const PillSegment(this.value, this.label, {this.icon});
   final T value;
   final String label;
+
+  /// Drawn before the label. Null keeps the text-only capsule.
+  final IconData? icon;
 }
 
 /// 胶囊分段控件:一条胶囊底槽,选中项是一颗会滑动的胶囊。
@@ -229,7 +232,7 @@ class _SegmentedPillState<T> extends State<SegmentedPill<T>> {
                           inMutuallyExclusiveGroup: true,
                           label: widget.segments[i].label,
                           excludeSemantics: true,
-                          child: GestureDetector(
+                            child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: enabled ? () => _tap(i) : null,
                             child: Center(
@@ -243,7 +246,7 @@ class _SegmentedPillState<T> extends State<SegmentedPill<T>> {
                                       fontWeight: i == current ? FontWeight.w600 : FontWeight.w500,
                                       color: i == current ? colors.onSurface : colors.onSurfaceVariant,
                                     ),
-                                    child: Text(widget.segments[i].label, maxLines: 1, softWrap: false),
+                                    child: _SegmentLabel(icon: widget.segments[i].icon, label: widget.segments[i].label),
                                   ),
                                 ),
                               ),
@@ -261,8 +264,32 @@ class _SegmentedPillState<T> extends State<SegmentedPill<T>> {
     }
 
     if (!widget.expand) {
-      return pill(SegmentedPill.naturalWidth(context, [for (final s in widget.segments) s.label]));
+      final icons = widget.segments.where((segment) => segment.icon != null).length;
+      return pill(SegmentedPill.naturalWidth(context, [for (final s in widget.segments) s.label]) + icons * 22);
     }
     return LayoutBuilder(builder: (context, c) => pill(c.maxWidth));
+  }
+}
+
+class _SegmentLabel extends StatelessWidget {
+  const _SegmentLabel({required this.label, this.icon});
+
+  final String label;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = DefaultTextStyle.of(context).style;
+    final text = Text(label, maxLines: 1, softWrap: false);
+    final iconData = icon;
+    if (iconData == null) return text;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(iconData, size: 16, color: style.color),
+        const SizedBox(width: 6),
+        text,
+      ],
+    );
   }
 }

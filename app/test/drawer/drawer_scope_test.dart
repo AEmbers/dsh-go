@@ -1,4 +1,4 @@
-// The wide sidebar's 运行中 / 历史 pile, and how the status capsules
+// The wide sidebar's 进行中 / 历史 pile, and how the status capsules
 // apply inside it.
 //
 //   flutter test test/drawer/drawer_scope_test.dart

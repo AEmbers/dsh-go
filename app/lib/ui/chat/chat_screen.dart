@@ -2022,35 +2022,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     scrolledUnder: sessionId == null ? null : _scrolledUnder,
                                     title: title,
                                     status: status,
-                                    detail: !narrow || isChild
-                                        ? null
-                                        : folderLabel(
-                                            ref.watch(
-                                              sessionsProvider.select(
-                                                (s) => s.value
-                                                    ?.where((session) => session.sessionId == sessionId)
-                                                    .firstOrNull
-                                                    ?.cwd,
-                                              ),
-                                            ),
+                                    detail: _workbenchDetail(
+                                      statusLabel: status.label,
+                                      host: conn?.label,
+                                      workspace: folderLabel(
+                                        ref.watch(
+                                          sessionsProvider.select(
+                                            (s) => s.value
+                                                ?.where((session) => session.sessionId == sessionId)
+                                                .firstOrNull
+                                                ?.cwd,
                                           ),
+                                        ),
+                                      ),
+                                    ),
                                     onOpenDrawer: widget.onOpenDrawer,
-                                    onNewChat: sessionId == null || isChild
-                                        ? null
-                                        : () {
-                                            HapticFeedback.selectionClick();
-                                            ref.read(openSessionTabsProvider.notifier).newChat();
-                                          },
-                                    onCall: isChild ? null : _callFromHeader,
+                                    // 新对话 sits on the tab row, beside the tabs.
+                                    onNewChat: null,
+                                    onCall: null,
                                     onTitleTap: sessionId == null
                                         ? null
                                         : () => SessionDetailPage.open(context, sessionId, toggle: true),
-                                    trailing: null,
+                                    trailing: ModelChip(
+                                      selection: sessionId == null ? pendingModel : chat?.model,
+                                      onSelected: _modelTarget(),
+                                      grouped: true,
+                                    ),
                                   ),
-                                  WorkbenchChrome(
-                                    modelSelection: sessionId == null ? pendingModel : chat?.model,
-                                    onModelSelected: _modelTarget(),
-                                  ),
+                                  const WorkbenchChrome(),
                                 ],
                               ),
                             )
@@ -2651,6 +2650,16 @@ class _DockAsideState extends State<_DockAside> with SingleTickerProviderStateMi
 /// takes its place so the chat scrolling up there still reads cleanly.
 /// Same wash as the wide page, so the tab strip stays readable when the
 /// transcript scrolls underneath it.
+/// Host and workspace under the title. Skips a host the status line already says.
+String? _workbenchDetail({required String statusLabel, String? host, String? workspace}) {
+  final parts = <String>[
+    if (host != null && host.isNotEmpty && host != statusLabel) host,
+    if (workspace != null && workspace.isNotEmpty && workspace != statusLabel && workspace != host) workspace,
+  ];
+  if (parts.isEmpty) return null;
+  return parts.join(' · ');
+}
+
 Color _workbenchBarColor(ThemeData theme) {
   final scheme = theme.colorScheme;
   final base = theme.brightness == Brightness.light ? const Color(0xFFE7EEF5) : scheme.surface;

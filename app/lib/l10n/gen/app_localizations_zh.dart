@@ -20352,6 +20352,9 @@ class L10nZh extends L10n {
   String get shellWorkbenchCli => '命令行';
 
   @override
+  String get shellWorkbenchModeCli => 'CLI';
+
+  @override
   String get shellWorkbenchCliNeedsSession => '命令行属于某一次对话。先打开或新建对话，再用这里的终端。';
 
   @override
