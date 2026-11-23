@@ -1,4 +1,4 @@
-# 云端编译并发布 Android APK（arm64 默认含内置 runtime，发布到 GitHub Releases 供直接下载）。
+# 云端编译并发布 Android APK（默认启用固定签名 + --side 并存构建，可与上游官方版共存且后续直接覆盖升级）。
 name: Build APK
 
 on:
@@ -13,13 +13,18 @@ on:
           - arm64
           - x64
           - all
+      side:
+        description: 'Side-by-side build (package .test, coexists with upstream DSH Go)'
+        required: false
+        default: true
+        type: boolean
       publish_release:
         description: 'Publish APK to GitHub Releases'
         required: false
         default: true
         type: boolean
       release_tag:
-        description: 'Custom release tag (leave empty for auto v<version>-<buildCode>)'
+        description: 'Custom release tag (leave empty for auto)'
         required: false
         default: ''
         type: string
@@ -134,6 +139,29 @@ jobs:
             echo "ANDROID_NDK_ROOT=${ndk_dir}"
           } >> "$GITHUB_ENV"
 
+      - name: Configure fixed release signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PWD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PWD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::notice::ANDROID_KEYSTORE_BASE64 secret not set; falling back to ephemeral debug signing"
+            exit 0
+          fi
+          ks_path="${RUNNER_TEMP}/dsh-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$ks_path"
+          chmod 600 "$ks_path"
+          {
+            printf 'storeFile=%s\n' "$ks_path"
+            printf 'storePassword=%s\n' "$KEYSTORE_PWD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PWD"
+          } > app/android/key.properties
+          chmod 600 app/android/key.properties
+          echo "Configured fixed release signing keystore."
+
       - name: Prepare Flutter dependencies and Gradle wrapper
         working-directory: app
         run: |
@@ -145,19 +173,18 @@ jobs:
 
       - name: Build Android Release APK
         run: |
-          bash tooling/build-apk.sh -f "${{ inputs.flavor || 'arm64' }}" --release --no-companion --no-star
+          flags=(-f "${{ inputs.flavor || 'arm64' }}" --release --no-companion --no-star)
+          if [ "${{ inputs.side }}" != "false" ]; then
+            flags+=(--side)
+          fi
+          bash tooling/build-apk.sh "${flags[@]}"
 
-      - name: Package release assets
+      - name: Package release assets and verify signature
         id: pkg
         run: |
           flavor="${{ inputs.flavor || 'arm64' }}"
+          is_side="${{ inputs.side != 'false' }}"
           short_sha=$(git rev-parse --short HEAD)
-          cat > release-notes.md <<EOF
-          DSH Go Android 构建产物（commit \`${short_sha}\`）。
-
-          - 默认分支包含上游同步、宽屏工作台 UI 对齐与 PC 端多 CLI（Antigravity / Claude Code / Codex）桥接支持。
-          - 云端构建使用默认签名；若手机此前安装过本地密钥签名的版本，请先卸载旧版或覆盖同源云端构建包。
-          EOF
 
           args=()
           if [ "$flavor" = "all" ]; then
@@ -166,6 +193,31 @@ jobs:
           else
             args+=("${flavor}=app/build/app/outputs/flutter-apk/app-${flavor}-release.apk")
           fi
+
+          # 读取并打印签名证书 SHA-256 指纹（无私钥泄露）
+          apksigner=$(ls -1d "${ANDROID_HOME}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1 || true)
+          cert_sha256="unknown"
+          first_apk="${args[0]#*=}"
+          if [ -n "$apksigner" ] && [ -f "$first_apk" ]; then
+            cert_info=$("$apksigner" verify --print-certs "$first_apk" || true)
+            echo "$cert_info"
+            cert_sha256=$(printf '%s\n' "$cert_info" | sed -n 's/.*SHA-256 digest: //p' | head -n 1)
+          fi
+
+          if [ "$is_side" = "true" ]; then
+            mode_desc="并存版（包名 \`io.github.ccch1mneyyy.dsh_app.test\`，桌面名称 **DSH Go 测试**，可与上游官方版共存）"
+          else
+            mode_desc="标准包名版（包名 \`io.github.ccch1mneyyy.dsh_app\`）"
+          fi
+
+          cat > release-notes.md <<EOF
+          DSH Go Android 构建产物（commit \`${short_sha}\`）。
+
+          - **安装形态**：${mode_desc}
+          - **固定签名证书 SHA-256**：\`${cert_sha256}\`（后续版本均使用同一固定密钥签名，可直接保留数据覆盖升级）
+          - **核心特性**：包含上游同步、宽屏工作台 UI 对齐与 PC 端多 CLI（Antigravity / Claude Code / Codex）桥接支持
+          EOF
+
           python3 tooling/release_assets.py --delta-from 0 --notes release-notes.md "${args[@]}"
 
           ver_full=$(python3 -c 'import json; print(json.load(open("dist/update.json"))["version"])')
@@ -173,19 +225,51 @@ jobs:
           ver_code="${ver_full#*+}"
           tag="${{ inputs.release_tag }}"
           if [ -z "$tag" ]; then
-            tag="v${ver_name}-${ver_code}"
+            if [ "$is_side" = "true" ]; then
+              tag="v${ver_name}-${ver_code}-side"
+            else
+              tag="v${ver_name}-${ver_code}"
+            fi
           fi
-          python3 - "$tag" "$GITHUB_REPOSITORY" <<'PY'
+
+          if [ "$is_side" = "true" ]; then
+            title="DSH Go 测试 ${ver_full}（固定签名·并存版）"
+          else
+            title="DSH Go ${ver_full}（固定签名）"
+          fi
+
+          python3 - "$tag" "$title" "$GITHUB_REPOSITORY" "$is_side" <<'PY'
           import json, pathlib, sys
-          tag, repo = sys.argv[1], sys.argv[2]
-          p = pathlib.Path("dist/update.json")
-          data = json.loads(p.read_text(encoding="utf-8"))
+          tag, title, repo, is_side = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == "true"
+          dist = pathlib.Path("dist")
+          data = json.loads((dist / "update.json").read_text(encoding="utf-8"))
+          if is_side:
+            new_assets = {}
+            sums = []
+            for flavor, entry in data["assets"].items():
+              old_name = entry["name"]
+              new_name = old_name.replace(f"-{flavor}.apk", f"-side-{flavor}.apk")
+              if (dist / old_name).exists() and new_name != old_name:
+                (dist / old_name).rename(dist / new_name)
+              entry["name"] = new_name
+              new_assets[flavor] = entry
+              sums.append(f"{entry['sha256']}  {new_name}")
+            data["assets"] = new_assets
+            (dist / "SHA256SUMS").write_text("\n".join(sums) + "\n", encoding="utf-8", newline="\n")
           data["tag"] = tag
+          data["title"] = title
           data["page"] = f"https://github.com/{repo}/releases/tag/{tag}"
-          p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          (dist / "update.json").write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
           PY
+
           echo "version_full=${ver_full}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "title=${title}" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup signing material
+        if: always()
+        run: |
+          rm -f "${RUNNER_TEMP}/dsh-release.jks" app/android/key.properties
 
       - name: Upload APK workflow artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -201,12 +285,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.pkg.outputs.tag }}"
-          ver_full="${{ steps.pkg.outputs.version_full }}"
+          title="${{ steps.pkg.outputs.title }}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$tag" dist/* \
               --repo "$GITHUB_REPOSITORY" \
-              --title "DSH Go ${ver_full}" \
+              --title "$title" \
               --notes-file release-notes.md
           fi
