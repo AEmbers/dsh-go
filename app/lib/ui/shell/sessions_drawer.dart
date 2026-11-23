@@ -202,9 +202,7 @@ class SessionsDrawer extends ConsumerWidget {
           ],
         ),
       ),
-      // The phone drawer already has the status capsules. The running /
-      // history split is the wide sidebar, where the list stays on screen.
-      if (drawerMotion == null) const DrawerScopeBar(),
+      const DrawerScopeBar(),
       SmoothSize(
         duration: AppMotion.of(context, AppMotion.standard),
         curve: AppMotion.std,

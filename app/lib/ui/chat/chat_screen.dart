@@ -86,7 +86,6 @@ import '../session/session_detail_page.dart';
 import '../settings/media_settings_page.dart' show MediaSettingsPage, showMediaInstallSheet, showMediaUnavailableSheet;
 import '../settings/settings_widgets.dart' show SettingsTile;
 import '../shell/adaptive/adaptive_layout.dart' show WindowClass;
-import '../shell/adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
 import '../shell/workbench/workbench_chrome.dart';
 import '../terminal/terminal_page.dart';
 import '../../state/workbench_state.dart';
@@ -1860,7 +1859,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       generate: readOnly ? null : generate,
       risk: !pillsBesideStrip,
     );
-    final workbench = !typing && (AdaptiveChrome.maybeOf(context)?.layout.isExpanded ?? false);
+    final workbench = !typing && !isChild;
     final cli = workbench && ref.watch(workbenchSurfaceProvider) == WorkbenchSurface.cli;
     final headerHeight = workbench
         ? WorkbenchChrome.extentOf(context) + ChatHeader.barHeightOf(context)
