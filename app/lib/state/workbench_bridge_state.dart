@@ -73,8 +73,7 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
 
   @override
   List<SessionSummary> build() {
-    final conn = ref.watch(activeConnectionProvider).value;
-    final client = conn?.state == DshConnectionState.connected ? conn?.client : null;
+    final client = ref.watch(activeConnectionProvider.select((c) => c.value?.client));
     if (!identical(client, _owner)) {
       _owner = client;
       _etag = null;

@@ -162,7 +162,7 @@ class WorkbenchCliSession {
     blank: blank,
     agentAvailable: true,
     cwd: cwd,
-    projections: SessionProjections(1, {'title': title, 'blank': blank}, title: title, blank: blank),
+    projections: SessionProjections(1, {'title': title, 'blank': blank}),
     projectionsKind: 'cli-bridge',
     raw: {...raw, 'cliEngine': engine.wire, 'rawId': rawId},
   );
@@ -373,7 +373,7 @@ extension WorkbenchBridgeApi on DshClient {
     if (rawSessionId != null) _requireSafeId(rawSessionId, 'rawSessionId');
     final payload = <String, Object?>{
       'engine': engine.wire,
-      if (rawSessionId != null) 'rawSessionId': rawSessionId,
+      'rawSessionId': ?rawSessionId,
       if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
       'prompt': prompt,
       if (model != null && model.isNotEmpty) 'model': model,
