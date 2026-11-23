@@ -86,7 +86,6 @@ import '../session/session_detail_page.dart';
 import '../settings/media_settings_page.dart' show MediaSettingsPage, showMediaInstallSheet, showMediaUnavailableSheet;
 import '../settings/settings_widgets.dart' show SettingsTile;
 import '../shell/adaptive/adaptive_layout.dart' show WindowClass;
-import '../shell/adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
 import '../shell/workbench/workbench_chrome.dart';
 import '../terminal/terminal_page.dart';
 import '../../state/workbench_state.dart';
