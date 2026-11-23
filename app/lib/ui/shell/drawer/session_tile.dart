@@ -22,6 +22,7 @@ class SessionTile extends StatelessWidget {
     required this.current,
     required this.onTap,
     required this.onLongPress,
+    this.leading,
     this.pending,
     this.unread = false,
     this.pinned = false,
@@ -37,6 +38,9 @@ class SessionTile extends StatelessWidget {
   final bool current;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+
+  /// Optional glyph placed before [title] (wide workbench rows).
+  final Widget? leading;
   final PendingKind? pending;
   final bool unread;
 
@@ -120,6 +124,7 @@ class SessionTile extends StatelessWidget {
             child: Row(
               children: [
                 _CheckSlot(selecting: selecting, selected: selected),
+                if (leading != null) ...[leading!, const SizedBox(width: 8)],
                 Expanded(
                   child: Text(
                     title,

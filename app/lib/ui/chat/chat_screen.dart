@@ -1858,9 +1858,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     );
     final workbench = !typing && (AdaptiveChrome.maybeOf(context)?.layout.isExpanded ?? false);
     final cli = workbench && ref.watch(workbenchSurfaceProvider) == WorkbenchSurface.cli;
-    final headerHeight =
-        (typing ? MediaQuery.paddingOf(context).top + AppSpace.sm : ChatHeader.heightOf(context)) +
-        (workbench ? WorkbenchChrome.extent : 0);
+    final headerHeight = workbench
+        ? WorkbenchChrome.extentOf(context) + ChatHeader.barHeightOf(context)
+        : (typing ? MediaQuery.paddingOf(context).top + AppSpace.sm : ChatHeader.heightOf(context));
 
     Widget backdrop(Widget child) {
       final framed = widget.backdrop ? WallpaperBackdrop(child: child) : child;
@@ -2018,8 +2018,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  const WorkbenchTabBar(),
                                   ChatHeader(
+                                    includeTopPadding: false,
                                     scrolledUnder: sessionId == null ? null : _scrolledUnder,
+                                    leading: Icon(
+                                      AppIcons.chat,
+                                      size: 18,
+                                      color: Theme.of(context).colorScheme.primary,
+                                    ),
                                     title: title,
                                     status: status,
                                     detail: _workbenchDetail(
@@ -2040,6 +2047,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     // 新对话 sits on the tab row, beside the tabs.
                                     onNewChat: null,
                                     onCall: null,
+                                    onRefresh: () => unawaited(refreshWorkbench(ref)),
                                     onTitleTap: sessionId == null
                                         ? null
                                         : () => SessionDetailPage.open(context, sessionId, toggle: true),
@@ -2049,7 +2057,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       grouped: true,
                                     ),
                                   ),
-                                  const WorkbenchChrome(),
+                                  const WorkbenchModeBar(),
                                 ],
                               ),
                             )

@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: MIT
 // See THIRD_PARTY_NOTICES.md.
 //
-// The wide window's conversation column: open tabs, then 对话 / CLI.
-// The title pill above this bar carries the connection and workspace.
-// Phone layout does not build this.
+// The wide window's conversation chrome:
+// 1) WorkbenchTabBar sits at the top (count badge, open tabs, new-chat +);
+// 2) ChatHeader sits underneath it (menu, title pill with icon, model, refresh);
+// 3) WorkbenchModeBar sits below the header (对话 / CLI).
+// Phone layout does not build these.
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
@@ -16,104 +18,207 @@ import '../../../state/sessions_state.dart';
 import '../../../state/workbench_state.dart';
 import '../../common/empty_view.dart';
 import '../../common/segmented_pill.dart';
+import '../../common/status_dot.dart';
 import '../../theme/app_icons.dart';
+import '../../theme/theme.dart';
 import '../sessions_drawer.dart' show sessionTitle;
 
-/// Fixed height of [WorkbenchChrome], not counting the status bar above it.
-/// The chat list's top inset adds this to the header so messages start
-/// under the bar.
-class WorkbenchChrome extends ConsumerWidget {
-  const WorkbenchChrome({super.key});
+/// Refreshes the host conversation list and resyncs the active chat.
+Future<void> refreshWorkbench(WidgetRef ref) async {
+  await ref.read(sessionsProvider.notifier).refresh();
+  final id = ref.read(currentSessionProvider);
+  if (id == null) return;
+  await ref.read(chatProvider(id).notifier).resync();
+}
 
+/// Top strip of the wide workbench: open-tab counter, scrollable session tabs,
+/// and the `+` button to start a new chat. Owns the top status-bar inset.
+class WorkbenchTabBar extends ConsumerWidget {
+  const WorkbenchTabBar({super.key});
+
+  static const topGap = 4.0;
   static const tabRow = 40.0;
-  static const modeRow = 40.0;
-  static const gap = 8.0;
-  static const extent = tabRow + gap + modeRow + gap;
+  static const bottomGap = 2.0;
+
+  static double heightOf(BuildContext context) => MediaQuery.paddingOf(context).top + topGap + tabRow + bottomGap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
+    final topInset = MediaQuery.paddingOf(context).top;
     final tabs = ref.watch(openSessionTabsProvider);
     final current = ref.watch(currentSessionProvider);
     final sessions = ref.watch(sessionsProvider).asData?.value ?? const <SessionSummary>[];
-    final titles = {for (final session in sessions) session.sessionId: sessionTitle(session)};
-    final surface = ref.watch(workbenchSurfaceProvider);
+    final byId = {for (final session in sessions) session.sessionId: session};
+    final tabCount = tabs.isEmpty && current == null ? 1 : tabs.length + (current == null ? 1 : 0);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            key: const ValueKey('workbench-tabs'),
-            height: tabRow,
-            child: Row(
-              children: [
-                Expanded(
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      if (current == null)
-                        _TabChip(
-                          key: const ValueKey('workbench-tab-new'),
-                          label: l10n.commonNewChat,
-                          selected: true,
-                          onTap: () {},
-                        ),
-                      for (final id in tabs)
-                        _TabChip(
-                          key: ValueKey('workbench-tab-$id'),
-                          closeKey: ValueKey('workbench-tab-close-$id'),
-                          label: titles[id] ?? l10n.commonUntitledChat,
-                          selected: id == current,
-                          onTap: () => ref.read(openSessionTabsProvider.notifier).show(id),
-                          onClose: () => ref.read(openSessionTabsProvider.notifier).close(id),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 4),
-                _IconKey(
-                  key: const ValueKey('workbench-refresh'),
-                  icon: AppIcons.refresh,
-                  tooltip: l10n.shellWorkbenchRefresh,
-                  onPressed: () => _refresh(ref),
-                ),
-                _IconKey(
-                  key: const ValueKey('workbench-new-chat'),
-                  icon: AppIcons.add,
-                  tooltip: l10n.commonNewChat,
-                  onPressed: () => ref.read(openSessionTabsProvider.notifier).newChat(),
-                ),
-              ],
+      padding: EdgeInsets.fromLTRB(12, topInset + topGap, 12, bottomGap),
+      child: SizedBox(
+        key: const ValueKey('workbench-tabs'),
+        height: tabRow,
+        child: Row(
+          children: [
+            _TabCountBadge(
+              key: const ValueKey('workbench-tab-count'),
+              count: tabCount,
+              tooltip: l10n.shellChatList,
+              tabs: tabs,
+              current: current,
+              byId: byId,
+              untitledLabel: l10n.commonUntitledChat,
+              onSelect: (id) => ref.read(openSessionTabsProvider.notifier).show(id),
             ),
-          ),
-          const SizedBox(height: gap),
-          SizedBox(
-            height: modeRow,
-            child: SegmentedPill<WorkbenchSurface>(
-              key: const ValueKey('workbench-mode'),
-              height: 36,
-              segments: [
-                PillSegment(WorkbenchSurface.chat, l10n.shellWorkbenchChat, icon: AppIcons.chat),
-                PillSegment(WorkbenchSurface.cli, l10n.shellWorkbenchModeCli, icon: AppIcons.terminal),
-              ],
-              selected: surface,
-              onChanged: (next) => ref.read(workbenchSurfaceProvider.notifier).show(next),
+            const SizedBox(width: 6),
+            Expanded(
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  if (current == null)
+                    _TabChip(
+                      key: const ValueKey('workbench-tab-new'),
+                      label: l10n.commonNewChat,
+                      selected: true,
+                      running: false,
+                      onTap: () {},
+                    ),
+                  for (final id in tabs)
+                    _TabChip(
+                      key: ValueKey('workbench-tab-$id'),
+                      closeKey: ValueKey('workbench-tab-close-$id'),
+                      runningKey: ValueKey('workbench-tab-running-$id'),
+                      label: byId[id] == null ? l10n.commonUntitledChat : sessionTitle(byId[id]!),
+                      selected: id == current,
+                      running: byId[id]?.running ?? false,
+                      onTap: () => ref.read(openSessionTabsProvider.notifier).show(id),
+                      onClose: () => ref.read(openSessionTabsProvider.notifier).close(id),
+                    ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: gap),
-        ],
+            const SizedBox(width: 4),
+            _IconKey(
+              key: const ValueKey('workbench-new-chat'),
+              icon: AppIcons.add,
+              tooltip: l10n.commonNewChat,
+              onPressed: () => ref.read(openSessionTabsProvider.notifier).newChat(),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
 
-  Future<void> _refresh(WidgetRef ref) async {
-    await ref.read(sessionsProvider.notifier).refresh();
-    final id = ref.read(currentSessionProvider);
-    if (id == null) return;
-    await ref.read(chatProvider(id).notifier).resync();
+/// Bottom strip of the wide workbench header: switches between 对话 and CLI.
+class WorkbenchModeBar extends ConsumerWidget {
+  const WorkbenchModeBar({super.key});
+
+  static const topGap = 4.0;
+  static const modeRow = 36.0;
+  static const bottomGap = 8.0;
+  static const extent = topGap + modeRow + bottomGap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final surface = ref.watch(workbenchSurfaceProvider);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, topGap, 12, bottomGap),
+      child: SizedBox(
+        height: modeRow,
+        child: SegmentedPill<WorkbenchSurface>(
+          key: const ValueKey('workbench-mode'),
+          height: modeRow,
+          segments: [
+            PillSegment(WorkbenchSurface.chat, l10n.shellWorkbenchChat, icon: AppIcons.chat),
+            PillSegment(WorkbenchSurface.cli, l10n.shellWorkbenchModeCli, icon: AppIcons.terminal),
+          ],
+          selected: surface,
+          onChanged: (next) => ref.read(workbenchSurfaceProvider.notifier).show(next),
+        ),
+      ),
+    );
+  }
+}
+
+/// Static extent helpers kept for callers computing wide workbench header height.
+abstract final class WorkbenchChrome {
+  static double extentOf(BuildContext context) => WorkbenchTabBar.heightOf(context) + WorkbenchModeBar.extent;
+}
+
+class _TabCountBadge extends StatelessWidget {
+  const _TabCountBadge({
+    super.key,
+    required this.count,
+    required this.tooltip,
+    required this.tabs,
+    required this.current,
+    required this.byId,
+    required this.untitledLabel,
+    required this.onSelect,
+  });
+
+  final int count;
+  final String tooltip;
+  final List<String> tabs;
+  final String? current;
+  final Map<String, SessionSummary> byId;
+  final String untitledLabel;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final badge = Container(
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: scheme.surface.withValues(alpha: 0.7),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+      ),
+      child: Text(
+        '$count',
+        style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurface),
+      ),
+    );
+    if (tabs.isEmpty) {
+      return Tooltip(message: tooltip, child: badge);
+    }
+    return PopupMenuButton<String>(
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      onSelected: onSelect,
+      itemBuilder: (context) => [
+        for (final id in tabs)
+          PopupMenuItem<String>(
+            key: ValueKey('workbench-tab-menu-$id'),
+            value: id,
+            child: Row(
+              children: [
+                Icon(AppIcons.chat, size: 15, color: id == current ? scheme.primary : scheme.onSurfaceVariant),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    byId[id] == null ? untitledLabel : sessionTitle(byId[id]!),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: id == current ? FontWeight.w600 : FontWeight.w400),
+                  ),
+                ),
+                if (byId[id]?.running ?? false) ...[
+                  const SizedBox(width: 8),
+                  const StatusDot(tone: StatusTone.busy, size: 6),
+                ],
+              ],
+            ),
+          ),
+      ],
+      child: badge,
+    );
   }
 }
 
@@ -122,41 +227,47 @@ class _TabChip extends StatelessWidget {
     super.key,
     required this.label,
     required this.selected,
+    required this.running,
     required this.onTap,
     this.onClose,
     this.closeKey,
+    this.runningKey,
   });
 
   final String label;
   final bool selected;
+  final bool running;
   final VoidCallback onTap;
   final VoidCallback? onClose;
   final Key? closeKey;
+  final Key? runningKey;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final scheme = Theme.of(context).colorScheme;
+    final dsh = DshColors.of(context);
     final background = selected ? scheme.surface : scheme.surface.withValues(alpha: 0.55);
     final foreground = selected ? scheme.onSurface : scheme.onSurfaceVariant;
+    final showClose = onClose != null && (selected || !running);
     return Padding(
       padding: const EdgeInsets.only(right: 6, top: 2, bottom: 2),
       child: Material(
         color: background,
-        elevation: selected ? 0.5 : 0,
+        elevation: selected ? 0.8 : 0,
         shadowColor: Colors.black26,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 220),
             child: Padding(
-              padding: EdgeInsets.only(left: 8, right: onClose == null ? 10 : 2),
+              padding: EdgeInsets.only(left: 10, right: showClose ? 2 : 10),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(AppIcons.chat, size: 14, color: foreground),
+                  Icon(AppIcons.chat, size: 14, color: selected ? scheme.primary : dsh.textTertiary),
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
@@ -166,7 +277,11 @@ class _TabChip extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(color: foreground, fontSize: 13),
                     ),
                   ),
-                  if (onClose != null)
+                  if (running) ...[
+                    const SizedBox(width: 6),
+                    StatusDot(key: runningKey, tone: StatusTone.busy, size: 6),
+                  ],
+                  if (showClose)
                     IconButton(
                       key: closeKey,
                       visualDensity: VisualDensity.compact,

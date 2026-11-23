@@ -75,7 +75,7 @@ void main() {
 
       expect(menu.size, const Size.square(44));
       expect(menu.left, _near(12));
-      expect(menu.center.dy, _near(pill.center.dy));
+      expect(pill.top, greaterThan(_key(tester, 'workbench-tabs').bottom - 1));
       expect(search.left, _near(menu.left));
       expect(search.top - menu.bottom, _near(8));
       expect(settings.left, _near(menu.left));
@@ -95,10 +95,9 @@ void main() {
       expect(line.width, _near(0.5));
 
       final collapse = _key(tester, 'panel-collapse');
-      final pill = _pill(tester);
       expect(collapse.size, const Size.square(44));
       expect(1280 - collapse.right, _near(12));
-      expect(collapse.center.dy, _near(pill.center.dy));
+      expect(collapse.center.dy, _near(_key(tester, 'rail-menu').center.dy));
       // The label starts where the figures under it do.
       final label = tester.getRect(find.text('对话详情'));
       expect(label.left, _near(896 + 24));
@@ -108,21 +107,22 @@ void main() {
       expect(1280 - segments.right, _near(16));
 
       // The chat: the composer centred in its column, the column ending on
-      // the hairline; the header's new-chat key 12 in from it.
+      // the hairline; the tab row's new-chat key 12 in from it.
       final composer = tester.getRect(find.byType(Composer));
       expect(composer.center.dx, _near((68 + 896) / 2));
       expect(896 - _key(tester, 'workbench-new-chat').right, _near(12));
       expect(find.byKey(const ValueKey('chat-panel-key')), findsNothing);
     });
 
-    testWidgets('fold and unfold: the key stays on one spot', (tester) async {
+    testWidgets('fold and unfold: the key stays on the right edge', (tester) async {
       await _pumpHome(tester);
       final open = _key(tester, 'panel-collapse');
       await tester.tap(find.byKey(const ValueKey('panel-collapse')));
       await pumpFrames(tester, 8);
       expect(find.byType(SessionDetailPage), findsNothing);
       final folded = _key(tester, 'chat-panel-key');
-      expect(folded, open);
+      expect(folded.right, _near(open.right));
+      expect(folded.center.dy, _near(_pill(tester).center.dy));
       // The sidebar fits again; the header's ≡ folds it.
       expect(find.byType(SessionsDrawer), findsOneWidget);
       expect(tester.getRect(find.byType(SessionsDrawer)).width, _near(424));

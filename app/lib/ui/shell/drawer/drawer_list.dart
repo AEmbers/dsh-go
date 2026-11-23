@@ -15,7 +15,8 @@ import '../../../state/sessions_state.dart';
 import '../../../state/workspaces_state.dart';
 import '../../common/empty_view.dart';
 import '../../theme/app_icons.dart';
-import '../../theme/motion.dart';
+import '../../theme/theme.dart';
+import '../adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
 import '../sessions_drawer.dart' show sessionTitle;
 import 'drawer_actions.dart';
 import 'folder_header.dart';
@@ -63,6 +64,9 @@ class DrawerConversationList extends ConsumerWidget {
     final unread = ref.watch(unreadSessionIdsProvider);
     final pinned = ref.watch(workspacesProvider.select((s) => s.pinnedSessionIds)).toSet();
     final sort = ref.watch(drawerViewProvider.select((v) => v.sort));
+    final wide = AdaptiveChrome.maybeOf(context)?.layout.isExpanded ?? false;
+    final scheme = Theme.of(context).colorScheme;
+    final dsh = DshColors.of(context);
     if (!readOnly && sort == DrawerSort.created) {
       final ids = [
         for (final block in blocks)
@@ -83,6 +87,9 @@ class DrawerConversationList extends ConsumerWidget {
           title: title,
           running: s.running,
           current: id == current,
+          leading: !wide
+              ? null
+              : Icon(AppIcons.chat, size: 16, color: id == current ? scheme.primary : dsh.textTertiary),
           pending: readOnly ? null : pending[id],
           unread: !readOnly && unread.contains(id),
           pinned: inFolder && pinned.contains(id),
