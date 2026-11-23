@@ -1860,7 +1860,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       generate: readOnly ? null : generate,
       risk: !pillsBesideStrip,
     );
-    final workbench = !typing && (AdaptiveChrome.maybeOf(context)?.layout.isExpanded ?? false);
+    final workbench = !typing && !isChild;
     final cli = workbench && ref.watch(workbenchSurfaceProvider) == WorkbenchSurface.cli;
     final headerHeight = workbench
         ? WorkbenchChrome.extentOf(context) + ChatHeader.barHeightOf(context)

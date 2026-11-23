@@ -17,7 +17,6 @@ import '../../common/cli_engine_icon.dart';
 import '../../common/empty_view.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
-import '../adaptive/adaptive_scaffold.dart' show AdaptiveChrome;
 import '../sessions_drawer.dart' show sessionTitle;
 import 'drawer_actions.dart';
 import 'folder_header.dart';
@@ -65,7 +64,6 @@ class DrawerConversationList extends ConsumerWidget {
     final unread = ref.watch(unreadSessionIdsProvider);
     final pinned = ref.watch(workspacesProvider.select((s) => s.pinnedSessionIds)).toSet();
     final sort = ref.watch(drawerViewProvider.select((v) => v.sort));
-    final wide = AdaptiveChrome.maybeOf(context)?.layout.isExpanded ?? false;
     final scheme = Theme.of(context).colorScheme;
     final dsh = DshColors.of(context);
     if (!readOnly && sort == DrawerSort.created) {
@@ -88,13 +86,11 @@ class DrawerConversationList extends ConsumerWidget {
           title: title,
           running: s.running,
           current: id == current,
-          leading: !wide
-              ? null
-              : CliEngineIcon(
-                  engine: s.cliEngine,
-                  size: 16,
-                  dshColor: id == current ? scheme.primary : dsh.textTertiary,
-                ),
+          leading: CliEngineIcon(
+            engine: s.cliEngine,
+            size: 16,
+            dshColor: id == current ? scheme.primary : dsh.textTertiary,
+          ),
           pending: readOnly ? null : pending[id],
           unread: !readOnly && unread.contains(id),
           pinned: inFolder && pinned.contains(id),

@@ -1,5 +1,5 @@
-// Wide windows get conversation tabs, the running/history pile and the
-// chat/CLI switch. A phone does not. Closing a tab does not delete the chat.
+// Workbenches show conversation tabs, the running/history pile and the
+// chat/CLI switch across wide and phone layouts. Closing a tab does not delete the chat.
 //
 //   flutter test test/shell/workbench_chrome_test.dart
 
@@ -127,11 +127,12 @@ void main() {
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/workbench_phone_light.png'));
   });
 
-  testWidgets('a phone keeps the single column and hides the workbench bar', (tester) async {
+  testWidgets('a phone keeps the single column and shows the workbench bar', (tester) async {
     await _pump(tester, _phone);
     expect(tester.takeException(), isNull);
-    expect(find.byKey(const ValueKey('workbench-tabs')), findsNothing);
-    expect(find.byKey(const ValueKey('drawer-list-scope')), findsNothing);
+    expect(find.byKey(const ValueKey('persistent-sidebar')), findsNothing);
+    expect(find.byKey(const ValueKey('workbench-tabs')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-mode')), findsOneWidget);
     expect(find.byKey(const ValueKey('chat-menu')), findsOneWidget);
     expect(find.byType(Composer), findsOneWidget);
   });

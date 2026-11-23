@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { createWorkbenchRoutes } from '../lib/index.js';
+import { createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
 import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
 import { readCliSessionMessages, scanAllCliSessions } from '../lib/scanners/index.js';
 
@@ -286,4 +287,50 @@ test('CliRunManager builds commands, streams output overlay, and supports abort'
     }),
   );
   assert.equal((await abortRes.json()).aborted, true);
+});
+
+test('createNodePrefixHandler serves real Node HTTP requests with JSON body parsing and 304 ETag', async (t) => {
+  const fx = makeTempFixtures();
+  t.after(() => fs.rmSync(fx.root, { recursive: true, force: true }));
+
+  const routes = createWorkbenchRoutes(
+    { get: () => ({ requestRejection: () => null }) },
+    { roots: fx.roots },
+  );
+  const server = http.createServer(createNodePrefixHandler(routes));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    routes.runner.dispose();
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const port = server.address().port;
+  const res1 = await fetch(`http://127.0.0.1:${port}/plugins/dsh-workbench-bridge/sessions`, {
+    headers: { connection: 'close' },
+  });
+  assert.equal(res1.status, 200);
+  const etag = res1.headers.get('etag');
+  assert.ok(etag);
+  const data1 = await res1.json();
+  assert.equal(data1.sessions.length, 3);
+
+  const res304 = await fetch(`http://127.0.0.1:${port}/plugins/dsh-workbench-bridge/sessions`, {
+    headers: { 'if-none-match': etag, connection: 'close' },
+  });
+  assert.equal(res304.status, 304);
+
+  const msgRes = await fetch(
+    `http://127.0.0.1:${port}/plugins/dsh-workbench-bridge/sessions/claude/${fx.ids.claudeId}/messages`,
+    { headers: { connection: 'close' } },
+  );
+  assert.equal(msgRes.status, 200);
+  const msgData = await msgRes.json();
+  assert.equal(msgData.engine, 'claude');
+
+  const badMethod = await fetch(`http://127.0.0.1:${port}/plugins/dsh-workbench-bridge/sessions`, {
+    method: 'POST',
+    headers: { connection: 'close' },
+  });
+  assert.equal(badMethod.status, 405);
 });

@@ -12,7 +12,44 @@ export const BASE = '/plugins/dsh-workbench-bridge';
 const MAX_BODY_BYTES = 1024 * 1024;
 
 /**
- * 读取 JSON 请求体（带大小限制，兼容 Fetch Request 或 Node IncomingMessage）。
+ * 读取 Node.js IncomingMessage 的 UTF-8 请求体，并在超出上限时报错。
+ *
+ * @param {any} req
+ * @param {number} maxBytes
+ * @returns {Promise<string>}
+ */
+function readNodeTextBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+    req.on('data', (chunk) => {
+      if (settled) return;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buf.length;
+      if (total > maxBytes) {
+        req.resume?.();
+        fail(Object.assign(new Error('Request body too large'), { status: 413, code: 'payload_too_large' }));
+        return;
+      }
+      chunks.push(buf);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    req.on('error', fail);
+  });
+}
+
+/**
+ * 读取 JSON 请求体（带大小限制，兼容 Fetch Request 与 Node IncomingMessage）。
  *
  * @param {any} req
  * @returns {Promise<Record<string, unknown>>}
@@ -28,6 +65,12 @@ async function readJsonBody(req) {
     return parsed && typeof parsed === 'object' ? parsed : {};
   }
   if (req?.body && typeof req.body === 'object') return req.body;
+  if (req && typeof req.on === 'function') {
+    const rawText = await readNodeTextBody(req, MAX_BODY_BYTES);
+    if (!rawText.trim()) return {};
+    const parsed = JSON.parse(rawText);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  }
   return {};
 }
 
@@ -224,6 +267,67 @@ export function createWorkbenchRoutes(ctx, options = {}) {
   };
 }
 
+async function writeNodeResponse(res, response) {
+  const headers = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+  res.writeHead(response.status, headers);
+  if (response.status === 204 || response.status === 304) {
+    res.end();
+    return;
+  }
+  res.end(await response.text());
+}
+
+/**
+ * 构建适配真实 DSH Node.js webServer (`kind: 'prefix'`) 的请求处理器。
+ *
+ * @param {ReturnType<typeof createWorkbenchRoutes>} routes
+ * @returns {(req: any, res: any) => Promise<void>}
+ */
+export function createNodePrefixHandler(routes) {
+  return async (req, res) => {
+    try {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const pathname = url.pathname.replace(/\/+$/, '') || '/';
+      const method = String(req.method || 'GET').toUpperCase();
+      let response;
+
+      if (pathname === `${BASE}/health`) {
+        response = method === 'GET' ? await routes.handleHealth(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/sessions`) {
+        response = method === 'GET' ? await routes.handleSessions(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/sessions/prompt`) {
+        response = method === 'POST' ? await routes.handlePrompt(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/sessions/abort`) {
+        response = method === 'POST' ? await routes.handleAbort(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname.startsWith(`${BASE}/sessions/`) && pathname.endsWith('/messages')) {
+        if (method !== 'GET') {
+          response = jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+        } else {
+          const rest = pathname.slice(`${BASE}/sessions/`.length, -'/messages'.length);
+          const parts = rest.split('/');
+          if (parts.length !== 2) {
+            response = jsonResponse(404, { code: 'not_found', message: 'Route not found' });
+          } else {
+            response = await routes.handleMessages(req, decodeURIComponent(parts[0]), decodeURIComponent(parts[1]));
+          }
+        }
+      } else {
+        response = jsonResponse(404, { code: 'not_found', message: 'Route not found' });
+      }
+      await writeNodeResponse(res, response);
+    } catch (err) {
+      if (!res.headersSent) {
+        await writeNodeResponse(res, jsonResponse(500, { code: 'internal_error', message: String(err?.message || err) }));
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    }
+  };
+}
+
 /**
  * Cordis 插件入口函数。
  *
@@ -231,31 +335,26 @@ export function createWorkbenchRoutes(ctx, options = {}) {
  */
 export function apply(ctx) {
   ctx.inject(['webServer'], (webCtx) => {
-    const webServer = webCtx.get('webServer');
+    const webServer = webCtx.webServer ?? webCtx.get?.('webServer');
     if (!webServer || typeof webServer.register !== 'function') return;
 
     const routes = createWorkbenchRoutes(webCtx);
-    const disposers = [];
-    const reg = (method, path, handler) => {
-      const d = webServer.register({ method, path, handler });
-      if (typeof d === 'function') disposers.push(d);
-    };
-
-    reg('GET', `${BASE}/health`, routes.handleHealth);
-    reg('GET', `${BASE}/sessions`, routes.handleSessions);
-    reg('POST', `${BASE}/sessions/prompt`, routes.handlePrompt);
-    reg('POST', `${BASE}/sessions/abort`, routes.handleAbort);
-    reg('GET', `${BASE}/sessions/:engine/:id/messages`, (req) => {
-      const url = new URL(req.url, 'http://localhost');
-      const segs = url.pathname.replace(/\/+$/, '').split('/');
-      const rawId = decodeURIComponent(segs[segs.length - 2] || '');
-      const engine = decodeURIComponent(segs[segs.length - 3] || '');
-      return routes.handleMessages(req, engine, rawId);
-    });
-
+    const handler = createNodePrefixHandler(routes);
+    if (typeof webCtx.effect === 'function') {
+      webCtx.effect(
+        () => webServer.register({ kind: 'prefix', path: BASE, handler }),
+        'dsh-workbench-bridge: HTTP routes',
+      );
+      webCtx.effect(
+        () => () => routes.runner.dispose(),
+        'dsh-workbench-bridge: runner cleanup',
+      );
+      return;
+    }
+    const disposeRoute = webServer.register({ kind: 'prefix', path: BASE, handler });
     webCtx.on?.('dispose', () => {
       routes.runner.dispose();
-      for (const d of disposers) d();
+      if (typeof disposeRoute === 'function') disposeRoute();
     });
   });
 }
