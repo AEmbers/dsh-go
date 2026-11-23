@@ -1,0 +1,198 @@
+# 云端编译并发布 Android APK（arm64 默认含内置 runtime，发布到 GitHub Releases 供直接下载）。
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: 'Android ABI flavor'
+        required: false
+        default: 'arm64'
+        type: choice
+        options:
+          - arm64
+          - x64
+          - all
+      publish_release:
+        description: 'Publish APK to GitHub Releases'
+        required: false
+        default: true
+        type: boolean
+      release_tag:
+        description: 'Custom release tag (leave empty for auto v<version>-<buildCode>)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.47.7
+  GRADLE_VERSION: 9.3.1
+  TZ: Asia/Shanghai
+  DSH_MAVEN_MIRRORS: 0
+
+jobs:
+  build-apk:
+    name: Build & Publish Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java 17
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Restore runtime download cache
+        id: cache-rt-dl
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: runtime/.cache
+          key: runtime-downloads-v1-${{ hashFiles('runtime/build-runtime.sh', 'runtime/locks/**') }}
+          restore-keys: runtime-downloads-v1-
+
+      - name: Restore built runtime bundle cache
+        id: cache-rt-out
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: runtime/out
+          key: runtime-out-v1-${{ inputs.flavor || 'arm64' }}-${{ hashFiles('runtime/build-runtime.sh', 'runtime/locks/**', 'runtime/patches/**', 'runtime/boot/**', 'runtime/bridge/**', 'runtime/direct/**', 'runtime/lib/**') }}
+
+      - name: Build bundled Linux runtime if needed
+        run: |
+          flavor="${{ inputs.flavor || 'arm64' }}"
+          need=()
+          if [ "$flavor" = "arm64" ] || [ "$flavor" = "all" ]; then
+            if ! python3 -I tooling/check_runtime_bundle.py arm64 >/dev/null 2>&1; then
+              need+=(arm64-v8a)
+            fi
+          fi
+          if [ "$flavor" = "x64" ] || [ "$flavor" = "all" ]; then
+            if ! python3 -I tooling/check_runtime_bundle.py x64 >/dev/null 2>&1; then
+              need+=(x86_64)
+            fi
+          fi
+          for abi in "${need[@]}"; do
+            runtime/build-runtime.sh "$abi"
+          done
+          if [ "$flavor" = "all" ]; then
+            python3 -I tooling/check_runtime_bundle.py arm64 x64
+          else
+            python3 -I tooling/check_runtime_bundle.py "$flavor"
+          fi
+
+      - name: Save runtime caches
+        if: steps.cache-rt-dl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: runtime/.cache
+          key: ${{ steps.cache-rt-dl.outputs.cache-primary-key }}
+
+      - name: Save built runtime bundle cache
+        if: steps.cache-rt-out.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: runtime/out
+          key: ${{ steps.cache-rt-out.outputs.cache-primary-key }}
+
+      - name: Ensure Android NDK for tawcroot
+        run: |
+          ndk_version=$(python3 -c 'import json; print(json.load(open("runtime/tawcroot/source.json"))["ndkVersion"])')
+          echo "Required NDK: ${ndk_version}"
+          if [ ! -d "${ANDROID_HOME}/ndk/${ndk_version}" ]; then
+            sdkmgr=$(command -v sdkmanager || ls -1d "${ANDROID_HOME}"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1 || true)
+            test -n "$sdkmgr" || { echo "sdkmanager not found under ${ANDROID_HOME}" >&2; exit 1; }
+            yes | "$sdkmgr" --sdk_root="${ANDROID_HOME}" --licenses >/dev/null || true
+            yes | "$sdkmgr" --sdk_root="${ANDROID_HOME}" "ndk;${ndk_version}"
+          fi
+          test -d "${ANDROID_HOME}/ndk/${ndk_version}"
+
+      - name: Prepare Flutter dependencies and Gradle wrapper
+        working-directory: app
+        run: |
+          flutter pub get --enforce-lockfile
+          printf 'sdk.dir=%s\nflutter.sdk=%s\n' "$ANDROID_HOME" "$FLUTTER_ROOT" > android/local.properties
+          if [ ! -x android/gradlew ]; then
+            (cd android && gradle wrapper --gradle-version "${GRADLE_VERSION}")
+          fi
+
+      - name: Build Android Release APK
+        run: |
+          bash tooling/build-apk.sh -f "${{ inputs.flavor || 'arm64' }}" --release --no-companion --no-star
+
+      - name: Package release assets
+        id: pkg
+        run: |
+          flavor="${{ inputs.flavor || 'arm64' }}"
+          short_sha=$(git rev-parse --short HEAD)
+          cat > release-notes.md <<EOF
+          DSH Go Android 构建产物（commit \`${short_sha}\`）。
+
+          - 默认分支包含上游同步、宽屏工作台 UI 对齐与 PC 端多 CLI（Antigravity / Claude Code / Codex）桥接支持。
+          - 云端构建使用默认签名；若手机此前安装过本地密钥签名的版本，请先卸载旧版或覆盖同源云端构建包。
+          EOF
+
+          args=()
+          if [ "$flavor" = "all" ]; then
+            args+=("arm64=app/build/app/outputs/flutter-apk/app-arm64-release.apk")
+            args+=("x64=app/build/app/outputs/flutter-apk/app-x64-release.apk")
+          else
+            args+=("${flavor}=app/build/app/outputs/flutter-apk/app-${flavor}-release.apk")
+          fi
+          python3 -I tooling/release_assets.py --delta-from 0 --notes release-notes.md "${args[@]}"
+
+          ver_full=$(python3 -c 'import json; print(json.load(open("dist/update.json"))["version"])')
+          ver_name="${ver_full%+*}"
+          ver_code="${ver_full#*+}"
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            tag="v${ver_name}-${ver_code}"
+          fi
+          echo "version_full=${ver_full}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK workflow artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dsh-go-apk-${{ steps.pkg.outputs.version_full }}
+          path: dist/*
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: inputs.publish_release == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.pkg.outputs.tag }}"
+          ver_full="${{ steps.pkg.outputs.version_full }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "DSH Go ${ver_full}" \
+              --notes-file release-notes.md
+          fi
