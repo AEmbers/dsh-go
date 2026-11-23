@@ -17,7 +17,10 @@ class ChatSuggestion {
       _prompt = prompt,
       _defaultIndex = null;
 
-  const ChatSuggestion._default(this.icon, this._defaultIndex, this.tint) : _label = null, _prompt = null, _detail = null;
+  const ChatSuggestion._default(this.icon, this._defaultIndex, this.tint)
+    : _label = null,
+      _prompt = null,
+      _detail = null;
 
   final IconData icon;
   final SuggestionTint tint;
@@ -150,6 +153,7 @@ class ChatEmptyState extends StatelessWidget {
     this.idle,
     this.now,
     this.suggestions = defaultSuggestions,
+    this.compact = false,
     this.workspace,
     this.onWorkspace,
     this.options,
@@ -196,6 +200,11 @@ class ChatEmptyState extends StatelessWidget {
   final DateTime? now;
   final List<ChatSuggestion> suggestions;
 
+  /// A short window (a phone on its side): drop the decorative whale and the
+  /// large greeting so the suggestion cards fit above the composer, and what
+  /// does not fit can scroll clear of it.
+  final bool compact;
+
   /// Same side margin and width cap as the header pills and the composer.
   static const sideMargin = AppSpace.floatInset;
   static const maxWidth = AppSpace.floatingWidth;
@@ -208,6 +217,9 @@ class ChatEmptyState extends StatelessWidget {
 
   /// The pill or chips → the suggestions.
   static const suggestionsGap = 28.0;
+
+  /// Same gap when [compact] has to spend the height on the cards.
+  static const compactSuggestionsGap = 8.0;
 
   /// The suggestions → the tip line.
   static const tipGap = 6.0;
@@ -267,31 +279,35 @@ class ChatEmptyState extends StatelessWidget {
               // The pet stands on the composer below: one mascot a screen,
               // so the still whale tail fades while the pet is drawn. Its
               // room stays, so nothing moves when the pet comes and goes.
-              enter(
-                Consumer(
-                  builder: (context, ref, child) => AnimatedOpacity(
-                    opacity: ref.watch(petTakesWhaleProvider) ? 0 : 1,
-                    duration: AppMotion.of(context, AppMotion.standard),
-                    curve: AppMotion.std,
-                    child: child,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Center(
-                      child: WhaleTail(
-                        still: true,
-                        height: 40,
-                        color: whaleColorFor(theme.brightness).withValues(alpha: 0.4),
+              // A short window drops it: the tail otherwise lands on the cards.
+              if (!compact)
+                enter(
+                  Consumer(
+                    builder: (context, ref, child) => AnimatedOpacity(
+                      opacity: ref.watch(petTakesWhaleProvider) ? 0 : 1,
+                      duration: AppMotion.of(context, AppMotion.standard),
+                      curve: AppMotion.std,
+                      child: child,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Center(
+                        child: WhaleTail(
+                          still: true,
+                          height: 40,
+                          color: whaleColorFor(theme.brightness).withValues(alpha: 0.4),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
               enter(
                 Text(
                   greetingFor(now ?? chatClock()),
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.displaySmall?.copyWith(color: theme.colorScheme.onSurface),
+                  style: (compact ? theme.textTheme.titleLarge : theme.textTheme.displaySmall)?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
               ),
               const SizedBox(height: 4),
@@ -314,15 +330,12 @@ class ChatEmptyState extends StatelessWidget {
                   ),
                 ),
               ],
-              if (connected && options != null) ...[
-                const SizedBox(height: optionsGap),
-                enter(Center(child: options!)),
-              ],
+              if (connected && options != null) ...[const SizedBox(height: optionsGap), enter(Center(child: options!))],
               if (suggestions.isNotEmpty || tipList.isNotEmpty)
                 ExpandReveal(
                   open: retry == null && idle == null,
                   child: Padding(
-                    padding: const EdgeInsets.only(top: suggestionsGap),
+                    padding: EdgeInsets.only(top: compact ? compactSuggestionsGap : suggestionsGap),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
