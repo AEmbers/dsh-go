@@ -166,7 +166,7 @@ jobs:
           else
             args+=("${flavor}=app/build/app/outputs/flutter-apk/app-${flavor}-release.apk")
           fi
-          python3 -I tooling/release_assets.py --delta-from 0 --notes release-notes.md "${args[@]}"
+          python3 tooling/release_assets.py --delta-from 0 --notes release-notes.md "${args[@]}"
 
           ver_full=$(python3 -c 'import json; print(json.load(open("dist/update.json"))["version"])')
           ver_name="${ver_full%+*}"
@@ -175,6 +175,15 @@ jobs:
           if [ -z "$tag" ]; then
             tag="v${ver_name}-${ver_code}"
           fi
+          python3 - "$tag" "$GITHUB_REPOSITORY" <<'PY'
+          import json, pathlib, sys
+          tag, repo = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("dist/update.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          data["tag"] = tag
+          data["page"] = f"https://github.com/{repo}/releases/tag/{tag}"
+          p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
           echo "version_full=${ver_full}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
