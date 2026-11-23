@@ -121,13 +121,18 @@ jobs:
         run: |
           ndk_version=$(python3 -c 'import json; print(json.load(open("runtime/tawcroot/source.json"))["ndkVersion"])')
           echo "Required NDK: ${ndk_version}"
-          if [ ! -d "${ANDROID_HOME}/ndk/${ndk_version}" ]; then
+          ndk_dir="${ANDROID_HOME}/ndk/${ndk_version}"
+          if [ ! -d "$ndk_dir" ]; then
             sdkmgr=$(command -v sdkmanager || ls -1d "${ANDROID_HOME}"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1 || true)
             test -n "$sdkmgr" || { echo "sdkmanager not found under ${ANDROID_HOME}" >&2; exit 1; }
             yes | "$sdkmgr" --sdk_root="${ANDROID_HOME}" --licenses >/dev/null || true
             yes | "$sdkmgr" --sdk_root="${ANDROID_HOME}" "ndk;${ndk_version}"
           fi
-          test -d "${ANDROID_HOME}/ndk/${ndk_version}"
+          test -d "$ndk_dir"
+          {
+            echo "ANDROID_NDK_HOME=${ndk_dir}"
+            echo "ANDROID_NDK_ROOT=${ndk_dir}"
+          } >> "$GITHUB_ENV"
 
       - name: Prepare Flutter dependencies and Gradle wrapper
         working-directory: app
