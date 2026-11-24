@@ -14,6 +14,8 @@ const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const UPLOAD_TTL_MS = 2 * 60 * 60 * 1000;
 const IMAGE_MIME_RE = /^image\//i;
 const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i;
+export const IDE_READONLY_MESSAGE =
+  '该会话由桌面端 Antigravity IDE 独占管理，移动端当前仅支持实时查看；请点击顶部「+」在 Antigravity 标签页新开会话进行对话。';
 
 /**
  * 清洗上传文件名，防止路径穿越或非法控制字符。
@@ -171,12 +173,31 @@ export class CliRunManager {
     this._spawn = deps.spawnFn || spawn;
     this._resolveBin = deps.resolveBinFn || resolveExecutable;
     this._uploadRoot = deps.uploadRoot || path.join(os.homedir(), '.dsh', 'tmp', 'workbench-bridge-uploads');
+    const hasCustomRoots = Boolean(deps.antigravityIdeRoot || deps.antigravityCliRoot);
+    this._checkIdeReadonly = !deps.spawnFn || hasCustomRoots;
+    this._antigravityIdeRoot = deps.antigravityIdeRoot || path.join(os.homedir(), '.gemini', 'antigravity');
+    this._antigravityCliRoot = deps.antigravityCliRoot || path.join(os.homedir(), '.gemini', 'antigravity-cli');
     /** @type {Map<string, object>} key: "engine:rawId" */
     this._runs = new Map();
     /** @type {Map<string, string>} key: "engine:pendingRawId" -> resolvedRawId */
     this._resolvedIds = new Map();
     /** @type {Map<string, { uploadId: string, path: string, dir: string, name: string, mediaType: string, bytes: number, done: boolean, createdAt: number }>} */
     this._uploads = new Map();
+  }
+
+  /**
+   * 判断 Antigravity 会话是否仅存在于桌面 IDE 目录而不被 `agy` CLI 轨迹存储识别。
+   *
+   * @param {string} rawId
+   * @returns {boolean}
+   */
+  _isIdeOnlyAntigravitySession(rawId) {
+    if (!this._checkIdeReadonly || !rawId || rawId.startsWith('pending-')) return false;
+    const cliDb = path.join(this._antigravityCliRoot, 'conversations', `${rawId}.db`);
+    if (fs.existsSync(cliDb)) return false;
+    const ideDb = path.join(this._antigravityIdeRoot, 'conversations', `${rawId}.db`);
+    const ideBrain = path.join(this._antigravityIdeRoot, 'brain', rawId);
+    return fs.existsSync(ideDb) || fs.existsSync(ideBrain);
   }
 
   /**
@@ -350,6 +371,13 @@ export class CliRunManager {
       ? (this._resolvedIds.get(`${engine}:${rawRequestedId}`) || rawRequestedId)
       : null;
 
+    if (engine === 'antigravity' && requestedId && this._isIdeOnlyAntigravitySession(requestedId)) {
+      throw Object.assign(new Error(IDE_READONLY_MESSAGE), {
+        status: 409,
+        code: 'ide_session_readonly',
+      });
+    }
+
     const displayPrompt = rawPrompt || attachments.map((a) => `[附件: ${a.name}]`).join(' ');
     const addDirs = [...new Set(attachments.map((a) => a.dir))];
     const imagePaths = attachments
@@ -470,6 +498,9 @@ export class CliRunManager {
       if (lineBuffer.trim()) {
         applyParsed(parseCliStreamLine(lineBuffer));
         lineBuffer = '';
+      }
+      if (/trajectory not found/i.test(state.errorText)) {
+        state.errorText = IDE_READONLY_MESSAGE;
       }
       state.running = false;
       state.exitCode = code;

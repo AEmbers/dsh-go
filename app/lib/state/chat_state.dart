@@ -903,11 +903,14 @@ class ChatController extends Notifier<ChatState> {
     } catch (error) {
       if (!ref.mounted || !identical(client, _client)) return false;
       _cliRunning = false;
+      final message = error is DshRemoteException && error.message.isNotEmpty
+          ? error.message
+          : error.toString();
       state = ChatState(
         items: _cliItems,
         running: false,
         loading: false,
-        error: error.toString(),
+        error: message,
         connection: client.mux.state,
         model: _cliModel,
       );

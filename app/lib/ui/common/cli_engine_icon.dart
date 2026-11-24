@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
 
-import '../theme/app_icons.dart';
+import '../shell/brand_mark.dart';
 
 /// 各 CLI 引擎在多 CLI 工作台中的代表色。
 Color cliEngineAccent(CliEngine engine, ColorScheme scheme) => switch (engine) {
@@ -30,9 +30,17 @@ class CliEngineIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     if (engine == CliEngine.dsh) {
-      return Icon(AppIcons.chat, size: size, color: dshColor ?? scheme.primary);
+      return SizedBox.square(
+        key: const ValueKey('cli-icon-dsh'),
+        dimension: size,
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.contain,
+            child: BrandMark(size: size),
+          ),
+        ),
+      );
     }
     return SizedBox.square(
       key: ValueKey('cli-icon-${engine.wire}'),

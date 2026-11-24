@@ -9,7 +9,8 @@ import test from 'node:test';
 
 import { attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
 import { parseAntigravityModelsOutput } from '../lib/models.js';
-import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
+import { CliRunManager, IDE_READONLY_MESSAGE, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
+import { readAntigravityMessages, scanAntigravitySessions } from '../lib/scanners/antigravity.js';
 import { readCliSessionMessages, scanAllCliSessions } from '../lib/scanners/index.js';
 
 function makeTempFixtures() {
@@ -723,4 +724,76 @@ test('files/stat, read-bytes, read-text, list, wb-upload, and Antigravity USER_I
   );
   assert.equal(dirStatRes.status, 400);
   assert.equal((await dirStatRes.json()).code, 'workspace-file/not-regular-file');
+});
+
+test('Antigravity scanner merges IDE and CLI roots and CliRunManager blocks IDE-only session prompts cleanly', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-agy-dual-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const ideRoot = path.join(root, 'antigravity');
+  const cliRoot = path.join(root, 'antigravity-cli');
+  const ideId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const cliId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+  fs.mkdirSync(path.join(ideRoot, 'conversations'), { recursive: true });
+  fs.mkdirSync(path.join(ideRoot, 'brain', ideId, '.system_generated', 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(ideRoot, 'conversations', `${ideId}.db`), '');
+  fs.writeFileSync(
+    path.join(ideRoot, 'brain', ideId, '.system_generated', 'logs', 'transcript.jsonl'),
+    `${JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-11-25T01:00:00Z',
+      content: '<USER_REQUEST>\nIDE only prompt\n</USER_REQUEST>',
+    })}\n`,
+  );
+
+  fs.mkdirSync(path.join(cliRoot, 'conversations'), { recursive: true });
+  fs.mkdirSync(path.join(cliRoot, 'brain', cliId, '.system_generated', 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(cliRoot, 'conversations', `${cliId}.db`), '');
+  fs.writeFileSync(
+    path.join(cliRoot, 'brain', cliId, '.system_generated', 'logs', 'transcript.jsonl'),
+    `${JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-11-25T02:00:00Z',
+      content: '<USER_REQUEST>\nCLI prompt\n</USER_REQUEST>',
+    })}\n`,
+  );
+
+  const merged = scanAntigravitySessions({ rootDir: ideRoot, cliRootDir: cliRoot });
+  assert.deepEqual(
+    merged.map((s) => s.rawId),
+    [cliId, ideId],
+  );
+  const cliMsgs = readAntigravityMessages(cliId, { rootDir: ideRoot, cliRootDir: cliRoot });
+  assert.equal(cliMsgs.messages[0].parts[0].text, 'CLI prompt');
+
+  let spawned = 0;
+  const manager = new CliRunManager({
+    antigravityIdeRoot: ideRoot,
+    antigravityCliRoot: cliRoot,
+    resolveBinFn: () => 'fake-agy',
+    spawnFn: () => {
+      spawned += 1;
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      return child;
+    },
+  });
+
+  assert.throws(
+    () => manager.startRun({ engine: 'antigravity', rawSessionId: ideId, prompt: 'hello' }),
+    (err) => err.code === 'ide_session_readonly' && err.message === IDE_READONLY_MESSAGE,
+  );
+  assert.equal(spawned, 0);
+
+  const okRun = manager.startRun({ engine: 'antigravity', rawSessionId: cliId, prompt: 'hello' });
+  assert.equal(okRun.running, true);
+  assert.equal(spawned, 1);
+  manager.dispose();
 });

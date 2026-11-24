@@ -72,14 +72,32 @@ function readTitleFromTranscriptHead(rootDir, conversationId) {
 }
 
 /**
- * 扫描 Antigravity 会话摘要列表（优先读只读 SQLite，失败时回退扫描 brain 目录）。
+ * 解析需要扫描的 Antigravity 根目录列表（同时兼容 IDE 与 `agy` CLI 双目录）。
  *
- * @param {{ rootDir?: string, limit?: number }} [options]
+ * @param {{ rootDir?: string, cliRootDir?: string }} [options]
+ * @returns {string[]}
+ */
+function resolveAntigravityRoots(options = {}) {
+  if (typeof options.rootDir === 'string' && options.rootDir.trim()) {
+    const out = [options.rootDir.trim()];
+    if (typeof options.cliRootDir === 'string' && options.cliRootDir.trim()) {
+      const cli = options.cliRootDir.trim();
+      if (!out.includes(cli)) out.push(cli);
+    }
+    return out;
+  }
+  const home = os.homedir();
+  return [path.join(home, '.gemini', 'antigravity'), path.join(home, '.gemini', 'antigravity-cli')];
+}
+
+/**
+ * 扫描单个 Antigravity 根目录下的会话摘要（优先读只读 SQLite，失败时回退扫描 brain 目录）。
+ *
+ * @param {string} rootDir
+ * @param {number} limit
  * @returns {Array<object>}
  */
-export function scanAntigravitySessions(options = {}) {
-  const rootDir = options.rootDir || path.join(os.homedir(), '.gemini', 'antigravity');
-  const limit = options.limit ?? 80;
+function scanSingleAntigravityRoot(rootDir, limit) {
   const dbPath = path.join(rootDir, 'conversation_summaries.db');
 
   if (fs.existsSync(dbPath)) {
@@ -169,6 +187,40 @@ export function scanAntigravitySessions(options = {}) {
 }
 
 /**
+ * 扫描 Antigravity 会话摘要列表（合并 IDE 与 `agy` CLI 双目录，按 `rawId` 去重）。
+ *
+ * @param {{ rootDir?: string, cliRootDir?: string, limit?: number }} [options]
+ * @returns {Array<object>}
+ */
+export function scanAntigravitySessions(options = {}) {
+  const roots = resolveAntigravityRoots(options);
+  const limit = options.limit ?? 80;
+  const byId = new Map();
+
+  for (const rootDir of roots) {
+    for (const item of scanSingleAntigravityRoot(rootDir, limit)) {
+      const prev = byId.get(item.rawId);
+      if (!prev) {
+        byId.set(item.rawId, item);
+        continue;
+      }
+      byId.set(item.rawId, {
+        ...prev,
+        ...item,
+        title: (item.updatedAt >= prev.updatedAt ? item.title : prev.title) || prev.title || item.title,
+        cwd: item.cwd || prev.cwd,
+        updatedAt: Math.max(prev.updatedAt, item.updatedAt),
+        running: Boolean(prev.running || item.running),
+      });
+    }
+  }
+
+  const merged = [...byId.values()];
+  merged.sort((a, b) => b.updatedAt - a.updatedAt);
+  return merged.slice(0, limit);
+}
+
+/**
  * 检查指定 Antigravity 会话当前是否在桌面端或本地进程中活跃运行。
  *
  * @param {string} rootDir
@@ -224,8 +276,25 @@ function isAntigravityRunning(rootDir, rawId, logPath, rows) {
  */
 export function readAntigravityMessages(rawId, options = {}) {
   if (!isSafeSessionId(rawId)) return { messages: [], model: null, running: false };
-  const rootDir = options.rootDir || path.join(os.homedir(), '.gemini', 'antigravity');
-  const logPath = path.join(rootDir, 'brain', rawId, '.system_generated', 'logs', 'transcript.jsonl');
+  const roots = resolveAntigravityRoots(options);
+  let rootDir = roots[0];
+  let logPath = path.join(rootDir, 'brain', rawId, '.system_generated', 'logs', 'transcript.jsonl');
+  let newestMtime = -1;
+  for (const candidateRoot of roots) {
+    const candidateLog = path.join(candidateRoot, 'brain', rawId, '.system_generated', 'logs', 'transcript.jsonl');
+    try {
+      if (fs.existsSync(candidateLog)) {
+        const mtime = fs.statSync(candidateLog).mtimeMs;
+        if (mtime > newestMtime) {
+          newestMtime = mtime;
+          rootDir = candidateRoot;
+          logPath = candidateLog;
+        }
+      }
+    } catch {
+      // ignore stat failure
+    }
+  }
   const rows = readJsonlSafe(logPath);
   const messages = [];
   let latestModel = null;
