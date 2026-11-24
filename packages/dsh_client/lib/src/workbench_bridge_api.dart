@@ -13,9 +13,11 @@ import 'dart:typed_data';
 import 'carrier.dart';
 import 'connection.dart';
 import 'errors.dart';
+import 'files_api.dart';
 import 'json.dart';
 import 'models.dart';
 import 'session_api.dart';
+import 'workspace_api.dart';
 
 const workbenchBridgeHealthPath = '/plugins/dsh-workbench-bridge/health';
 const workbenchBridgeSessionsPath = '/plugins/dsh-workbench-bridge/sessions';
@@ -23,9 +25,14 @@ const workbenchBridgeModelsPath = '/plugins/dsh-workbench-bridge/models';
 const workbenchBridgeUploadPath = '/plugins/dsh-workbench-bridge/uploads';
 const workbenchBridgePromptPath = '/plugins/dsh-workbench-bridge/sessions/prompt';
 const workbenchBridgeAbortPath = '/plugins/dsh-workbench-bridge/sessions/abort';
+const workbenchBridgeFileStatPath = '/plugins/dsh-workbench-bridge/files/stat';
+const workbenchBridgeFileReadBytesPath = '/plugins/dsh-workbench-bridge/files/read-bytes';
+const workbenchBridgeFileReadTextPath = '/plugins/dsh-workbench-bridge/files/read-text';
+const workbenchBridgeFileListPath = '/plugins/dsh-workbench-bridge/files/list';
 
 const _maxReplyBytes = 4 * 1024 * 1024;
 const _uploadChunkBytes = 192 * 1024;
+const _bridgeFileWindowBytes = 512 * 1024;
 
 /// Supported CLI engines in the unified multi-CLI workbench.
 enum CliEngine {
@@ -605,6 +612,140 @@ extension WorkbenchBridgeApi on DshClient {
     }
     final body = asMap(tryDecodeJson(response.text));
     return body?['aborted'] == true;
+  }
+
+  Future<Map<String, Object?>> _postBridgeFileJson(
+    String httpPath,
+    String rpcMethod,
+    Map<String, Object?> payload, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    if (carrier is! DshHttpCarrier) {
+      return _callRpcBridge(rpcMethod, payload, timeout);
+    }
+    final response = await _bridgeConnection(httpPath).postBytes(
+      httpPath,
+      utf8.encode(jsonEncode(payload)),
+      contentType: 'application/json',
+      followRedirects: false,
+      maxResponseBytes: _maxReplyBytes,
+      timeout: timeout,
+    );
+    final parsed = asMap(tryDecodeJson(response.text));
+    if (response.statusCode != 200) {
+      final code = asString(parsed?['code']);
+      if (code != null && code.startsWith('workspace-file/')) {
+        throw DshRemoteException(
+          code,
+          asString(parsed?['message']) ?? '$httpPath: HTTP ${response.statusCode}',
+          {'path': payload['path']},
+        );
+      }
+      if (response.statusCode == 404 ||
+          response.statusCode == 405 ||
+          response.statusCode == 501 ||
+          response.statusCode == 503) {
+        throw const WorkbenchBridgeUnavailableException();
+      }
+      throw DshHttpException(response.statusCode, '$httpPath: HTTP ${response.statusCode}', body: response.text);
+    }
+    if (parsed == null) throw DshProtocolException('$httpPath: invalid JSON');
+    return parsed;
+  }
+
+  Future<DshFileStat> workbenchBridgeStatFile(CliSessionRef ref, String path) async {
+    final map = await _postBridgeFileJson(
+      workbenchBridgeFileStatPath,
+      'workbench.bridge.file.stat',
+      {'engine': ref.engine.wire, 'rawId': ref.rawId, 'path': path},
+    );
+    return DshFileStat.fromJson(map);
+  }
+
+  Future<DshWorkspaceBytes> workbenchBridgeReadFileBytes(
+    CliSessionRef ref,
+    String path, {
+    int offset = 0,
+    int length = _bridgeFileWindowBytes,
+  }) async {
+    final map = await _postBridgeFileJson(
+      workbenchBridgeFileReadBytesPath,
+      'workbench.bridge.file.readBytes',
+      {'engine': ref.engine.wire, 'rawId': ref.rawId, 'path': path, 'offset': offset, 'length': length},
+      timeout: const Duration(seconds: 30),
+    );
+    final rawData = asString(map['data']) ?? '';
+    return DshWorkspaceBytes(
+      data: rawData.isEmpty ? Uint8List(0) : base64Decode(rawData),
+      eof: map['eof'] == true,
+      offset: asInt(map['offset']) ?? offset,
+      absolutePath: asString(map['absolutePath']) ?? '',
+      version: asString(map['version']) ?? '',
+      bytes: asInt(map['bytes']),
+    );
+  }
+
+  Future<int> workbenchBridgeReadFile(
+    CliSessionRef ref,
+    String path, {
+    required FutureOr<void> Function(Uint8List chunk) onChunk,
+    void Function(int received, int? total)? onProgress,
+    int? maxBytes,
+  }) async {
+    final stat = await workbenchBridgeStatFile(ref, path);
+    final total = stat.bytes;
+    if (maxBytes != null && total != null && total > maxBytes) {
+      throw DshRemoteException('workspace-file/too-large', '"$path" is $total bytes (limit $maxBytes)', {
+        'path': path,
+        'limit': maxBytes,
+      });
+    }
+    onProgress?.call(0, total);
+    var offset = 0;
+    var expectedVersion = stat.version.isEmpty ? null : stat.version;
+    while (true) {
+      final page = await workbenchBridgeReadFileBytes(ref, path, offset: offset, length: _bridgeFileWindowBytes);
+      if (page.version.isNotEmpty) {
+        if (expectedVersion != null && page.version != expectedVersion) {
+          throw DshRemoteException('workspace-file/changed', '"$path" changed while reading', {'path': path});
+        }
+        expectedVersion ??= page.version;
+      }
+      final data = page.data;
+      offset += data.length;
+      if (maxBytes != null && offset > maxBytes) {
+        throw DshRemoteException('workspace-file/too-large', '"$path" exceeds $maxBytes bytes', {
+          'path': path,
+          'limit': maxBytes,
+        });
+      }
+      if (data.isNotEmpty) await onChunk(data);
+      onProgress?.call(offset, page.bytes ?? total);
+      if (page.eof || data.isEmpty) return offset;
+    }
+  }
+
+  Future<DshWorkspaceText> workbenchBridgeReadFileText(
+    CliSessionRef ref,
+    String path, {
+    int offset = 1,
+    int limit = 500,
+  }) async {
+    final map = await _postBridgeFileJson(
+      workbenchBridgeFileReadTextPath,
+      'workbench.bridge.file.readText',
+      {'engine': ref.engine.wire, 'rawId': ref.rawId, 'path': path, 'offset': offset, 'limit': limit},
+    );
+    return DshWorkspaceText.fromJson(map, offset: offset);
+  }
+
+  Future<DshWorkspaceListing> workbenchBridgeListWorkspace(CliSessionRef ref, String path) async {
+    final map = await _postBridgeFileJson(
+      workbenchBridgeFileListPath,
+      'workbench.bridge.file.list',
+      {'engine': ref.engine.wire, 'rawId': ref.rawId, 'path': path.isEmpty ? '.' : path},
+    );
+    return DshWorkspaceListing.fromJson(map, fallbackPath: path);
   }
 
   DshConnection _bridgeConnection(String path) {

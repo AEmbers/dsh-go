@@ -7,6 +7,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import {
+  listBridgeDirectory,
+  readBridgeFileBytes,
+  readBridgeFileText,
+  statBridgeFile,
+} from './files.js';
 import { makeBridgeGuard } from './guard.js';
 import { listCliEngineModels } from './models.js';
 import { CliRunManager } from './runner.js';
@@ -204,14 +210,29 @@ export function createWorkbenchRoutes(ctx, options = {}) {
         const userParts = [{ type: 'text', text: overlay.prompt }];
         if (Array.isArray(overlay.attachments)) {
           for (const att of overlay.attachments) {
-            userParts.push({
-              type: 'file',
-              attachment: {
-                attachmentId: att.uploadId,
-                name: att.name,
-                bytes: att.bytes,
-              },
-            });
+            const isImg =
+              /^image\//i.test(att.mediaType || '') ||
+              /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(att.name || '');
+            if (isImg) {
+              userParts.push({
+                type: 'image',
+                attachment: {
+                  attachmentId: `wb-upload:${att.uploadId}`,
+                  mediaType: att.mediaType || 'image/jpeg',
+                  name: att.name,
+                  bytes: att.bytes,
+                },
+              });
+            } else {
+              userParts.push({
+                type: 'file',
+                attachment: {
+                  attachmentId: att.uploadId,
+                  name: att.name,
+                  bytes: att.bytes,
+                },
+              });
+            }
           }
         }
         messages.push({
@@ -392,6 +413,74 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     }
   }
 
+  function buildFileStatPayload(body) {
+    const safeBody = body && typeof body === 'object' ? body : {};
+    return statBridgeFile(
+      {
+        engine: safeBody.engine,
+        rawId: safeBody.rawId ?? safeBody.rawSessionId ?? safeBody.sessionId,
+        path: safeBody.path,
+      },
+      { roots: options.roots, runner },
+    );
+  }
+
+  function buildFileReadBytesPayload(body) {
+    const safeBody = body && typeof body === 'object' ? body : {};
+    return readBridgeFileBytes(
+      {
+        engine: safeBody.engine,
+        rawId: safeBody.rawId ?? safeBody.rawSessionId ?? safeBody.sessionId,
+        path: safeBody.path,
+        offset: safeBody.offset,
+        length: safeBody.length,
+      },
+      { roots: options.roots, runner },
+    );
+  }
+
+  function buildFileReadTextPayload(body) {
+    const safeBody = body && typeof body === 'object' ? body : {};
+    return readBridgeFileText(
+      {
+        engine: safeBody.engine,
+        rawId: safeBody.rawId ?? safeBody.rawSessionId ?? safeBody.sessionId,
+        path: safeBody.path,
+        offset: safeBody.offset,
+        limit: safeBody.limit,
+      },
+      { roots: options.roots, runner },
+    );
+  }
+
+  function buildFileListPayload(body) {
+    const safeBody = body && typeof body === 'object' ? body : {};
+    return listBridgeDirectory(
+      {
+        engine: safeBody.engine,
+        rawId: safeBody.rawId ?? safeBody.rawSessionId ?? safeBody.sessionId,
+        path: safeBody.path,
+      },
+      { roots: options.roots, runner },
+    );
+  }
+
+  async function handleFileAction(req, fn) {
+    const blocked = rejectIfNeeded(req);
+    if (blocked) return blocked;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      return jsonResponse(err.status || 400, { code: err.code || 'bad_json', message: err.message });
+    }
+    try {
+      return jsonResponse(200, fn(body));
+    } catch (err) {
+      return jsonResponse(err.status || 400, { code: err.code || 'workspace-file/read-failed', message: err.message });
+    }
+  }
+
   return {
     runner,
     buildHealthPayload,
@@ -401,6 +490,10 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     runUploadPayload,
     runPromptPayload,
     runAbortPayload,
+    buildFileStatPayload,
+    buildFileReadBytesPayload,
+    buildFileReadTextPayload,
+    buildFileListPayload,
     handleHealth,
     handleSessions,
     handleMessages,
@@ -408,6 +501,10 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     handleUpload,
     handlePrompt,
     handleAbort,
+    handleFileStat: (req) => handleFileAction(req, buildFileStatPayload),
+    handleFileReadBytes: (req) => handleFileAction(req, buildFileReadBytesPayload),
+    handleFileReadText: (req) => handleFileAction(req, buildFileReadTextPayload),
+    handleFileList: (req) => handleFileAction(req, buildFileListPayload),
   };
 }
 
@@ -456,6 +553,14 @@ export function createNodePrefixHandler(routes) {
         response = method === 'POST' ? await routes.handlePrompt(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
       } else if (pathname === `${BASE}/sessions/abort`) {
         response = method === 'POST' ? await routes.handleAbort(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/files/stat`) {
+        response = method === 'POST' ? await routes.handleFileStat(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/files/read-bytes`) {
+        response = method === 'POST' ? await routes.handleFileReadBytes(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/files/read-text`) {
+        response = method === 'POST' ? await routes.handleFileReadText(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/files/list`) {
+        response = method === 'POST' ? await routes.handleFileList(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
       } else if (pathname.startsWith(`${BASE}/sessions/`) && pathname.endsWith('/messages')) {
         if (method !== 'GET') {
           response = jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
@@ -505,7 +610,9 @@ export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
 
   function toRpcError(code, err) {
     const msg = String(err?.message || err || 'Workbench bridge RPC failed');
-    const mappedCode = code || (err?.status === 400 ? 'INVALID_MESSAGE' : 'FAILED');
+    const explicitCode =
+      typeof err?.code === 'string' && err.code.startsWith('workspace-file/') ? err.code : null;
+    const mappedCode = explicitCode || code || (err?.status === 400 ? 'INVALID_MESSAGE' : 'FAILED');
     if (typeof RpcErrorClass === 'function') {
       return new RpcErrorClass(mappedCode, msg, err?.code ? { bridgeCode: err.code } : undefined);
     }
@@ -539,6 +646,14 @@ export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
             return routes.runPromptPayload(p);
           case 'workbench.bridge.abort':
             return routes.runAbortPayload(p);
+          case 'workbench.bridge.file.stat':
+            return routes.buildFileStatPayload(p);
+          case 'workbench.bridge.file.readBytes':
+            return routes.buildFileReadBytesPayload(p);
+          case 'workbench.bridge.file.readText':
+            return routes.buildFileReadTextPayload(p);
+          case 'workbench.bridge.file.list':
+            return routes.buildFileListPayload(p);
           default:
             break;
         }

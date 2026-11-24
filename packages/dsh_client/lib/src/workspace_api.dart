@@ -26,6 +26,7 @@ import 'dart:typed_data';
 import 'errors.dart';
 import 'json.dart';
 import 'session_api.dart';
+import 'workbench_bridge_api.dart';
 
 /// One direct child of a listed directory.
 class DshWorkspaceEntry {
@@ -193,6 +194,9 @@ const int workspaceMaxPageLines = 5000;
 extension DshWorkspaceApi on DshClient {
   /// `workspaceFiles/list`; [path] '' means the workspace root.
   Future<DshWorkspaceListing> listWorkspace(String sessionId, String path) async {
+    if (CliSessionRef.parse(sessionId) case final cli?) {
+      return workbenchBridgeListWorkspace(cli, path);
+    }
     final wire = path.isEmpty ? '.' : path;
     final value = await rpc.call('workspaceFiles/list', {'workspaceFileScopeId': sessionId, 'path': wire});
     return DshWorkspaceListing.fromJson(value, fallbackPath: path);
@@ -204,6 +208,9 @@ extension DshWorkspaceApi on DshClient {
   /// `workspace-file/too-large` when the page would pass 2 MiB (one very long
   /// line is enough).
   Future<DshWorkspaceText> readWorkspaceText(String sessionId, String path, {int offset = 1, int limit = 500}) async {
+    if (CliSessionRef.parse(sessionId) case final cli?) {
+      return workbenchBridgeReadFileText(cli, path, offset: offset, limit: limit);
+    }
     final value = await rpc.call('workspaceFiles/read', {
       'workspaceFileScopeId': sessionId,
       'path': path,
@@ -220,6 +227,9 @@ extension DshWorkspaceApi on DshClient {
     int offset = 0,
     required int length,
   }) async {
+    if (CliSessionRef.parse(sessionId) case final cli?) {
+      return workbenchBridgeReadFileBytes(cli, path, offset: offset, length: length);
+    }
     final map = asMapOrEmpty(
       await rpc.call('workspaceFiles/readBytes', {
         'workspaceFileScopeId': sessionId,
@@ -248,6 +258,16 @@ extension DshWorkspaceApi on DshClient {
   /// watching, `workspace-file/not-found`, …) arrives as an error and ends
   /// the stream.
   Stream<DshWorkspaceWatchFrame> watchWorkspace(String sessionId, String path) {
+    if (CliSessionRef.parse(sessionId) != null) {
+      late final StreamController<DshWorkspaceWatchFrame> cliOut;
+      cliOut = StreamController<DshWorkspaceWatchFrame>(
+        onListen: () {
+          if (!cliOut.isClosed) cliOut.add(const DshWorkspaceWatchReady());
+        },
+        onCancel: () => unawaited(cliOut.close()),
+      );
+      return cliOut.stream;
+    }
     final wire = path.isEmpty ? '.' : path;
     late final StreamController<DshWorkspaceWatchFrame> out;
     StreamSubscription<Object?>? generations;

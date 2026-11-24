@@ -117,6 +117,7 @@ String resolveSessionPath(String path, {String? cwd}) {
   // Whitespace belongs to the filename, including at the ends of a decoded URI path.
   var p = path;
   if (p.startsWith('file://')) p = Uri.decodeFull(p.substring('file://'.length));
+  if (RegExp(r'^/[A-Za-z]:[\\/]').hasMatch(p)) p = p.substring(1);
   if (RegExp(r'^[A-Za-z]:[\\/]').hasMatch(p)) return p;
   if (!p.startsWith('/')) {
     if (cwd == null || !cwd.startsWith('/')) return p;

@@ -14,18 +14,27 @@ List<ChatItem> cliSnapshotToChatItems(WorkbenchCliChatSnapshot snapshot) {
     seq += 1;
     if (msg.role == MessageRole.user) {
       final text = msg.parts.whereType<TextPart>().map((p) => p.text).join('\n');
+      final images = [
+        for (final p in msg.parts.whereType<ImagePart>())
+          if (p.attachment.attachmentId.isNotEmpty) p.attachment,
+      ];
       final files = [
         for (final p in msg.parts.whereType<FilePart>()) p.attachment,
         for (final p in msg.parts.whereType<ImagePart>())
-          FileAttachment(attachmentId: p.attachment.attachmentId, name: p.attachment.name ?? 'image', bytes: p.attachment.bytes),
+          if (p.attachment.attachmentId.isEmpty)
+            FileAttachment(
+              attachmentId: p.attachment.attachmentId,
+              name: p.attachment.name ?? 'image',
+              bytes: p.attachment.bytes,
+            ),
       ];
-      if (text.trim().isEmpty && files.isEmpty) continue;
+      if (text.trim().isEmpty && images.isEmpty && files.isEmpty) continue;
       items.add(
         UserChatItem(
           seq: seq,
           time: msg.createdAt,
           text: text,
-          images: const [],
+          images: images,
           files: files,
         ),
       );

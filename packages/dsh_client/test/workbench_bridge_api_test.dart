@@ -287,6 +287,78 @@ void main() {
     addTearDown(unavailableClient.close);
     await expectLater(unavailableClient.readWorkbenchBridgeSessions(), throwsA(isA<WorkbenchBridgeUnavailableException>()));
   });
+
+  test('routes cli:* file stat/read/list/attachment to workbench.bridge.file.* and normalizes /C:/ paths', () async {
+    expect(
+      resolveSessionPath('/C:/Users/Administrator/verify-fix-codex-models.png'),
+      'C:/Users/Administrator/verify-fix-codex-models.png',
+    );
+    expect(
+      resolveSessionPath('file:///C:/Users/Administrator/verify-fix-codex-models.png'),
+      'C:/Users/Administrator/verify-fix-codex-models.png',
+    );
+
+    final sampleBytes = Uint8List.fromList([1, 2, 3, 4, 5]);
+    final carrier = _FakeRpcCarrier((method, params) async {
+      return switch (method) {
+        'workbench.bridge.file.stat' => {
+          'ok': true,
+          'absolutePath': params['path'],
+          'version': '1:2:5:100:100',
+          'bytes': sampleBytes.length,
+        },
+        'workbench.bridge.file.readBytes' => {
+          'ok': true,
+          'data': base64Encode(sampleBytes),
+          'eof': true,
+          'offset': 0,
+          'absolutePath': params['path'],
+          'version': '1:2:5:100:100',
+          'bytes': sampleBytes.length,
+        },
+        'workbench.bridge.file.readText' => {
+          'ok': true,
+          'text': 'hello\nworld',
+          'lines': 2,
+          'eof': true,
+          'offset': 1,
+          'absolutePath': params['path'],
+          'version': '1:2:11:100:100',
+          'bytes': 11,
+        },
+        'workbench.bridge.file.list' => {
+          'ok': true,
+          'path': '',
+          'entries': [
+            {'name': 'models.js', 'type': 'file', 'size': 123},
+          ],
+          'truncated': false,
+        },
+        _ => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing'),
+      };
+    });
+    final client = await DshClient.connectCarrier(carrier, startMux: false);
+    addTearDown(client.close);
+
+    const cliSession = 'cli:antigravity:conv-1';
+    final stat = await client.statFile(cliSession, 'C:/tmp/a.png');
+    expect(stat.bytes, sampleBytes.length);
+
+    final bytes = await client.readFileBytes(cliSession, 'C:/tmp/a.png');
+    expect(bytes, sampleBytes);
+
+    final text = await client.readWorkspaceText(cliSession, 'C:/tmp/a.txt');
+    expect(text.text, 'hello\nworld');
+
+    final listed = await client.listWorkspace(cliSession, '');
+    expect(listed.entries.single.name, 'models.js');
+
+    final att = await client.attachment(
+      cliSession,
+      const ImageAttachment(attachmentId: 'wb-file:C:/tmp/a.png', mediaType: 'image/png'),
+    );
+    expect(att.bytes, sampleBytes);
+  });
 }
 
 extension _SessionEngineX on WorkbenchCliSession {

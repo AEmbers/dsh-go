@@ -179,6 +179,19 @@ export class CliRunManager {
     this._uploads = new Map();
   }
 
+  /**
+   * 按 uploadId 获取当前缓存的已上传附件元信息。
+   *
+   * @param {string} uploadId
+   * @returns {{ uploadId: string, path: string, dir: string, name: string, mediaType: string, bytes: number, done: boolean, createdAt: number } | null}
+   */
+  getUpload(uploadId) {
+    this._pruneOldUploads();
+    const key = typeof uploadId === 'string' ? uploadId.trim() : '';
+    if (!key) return null;
+    return this._uploads.get(key) ?? null;
+  }
+
   _pruneOldUploads() {
     const cutoff = Date.now() - UPLOAD_TTL_MS;
     for (const [id, entry] of this._uploads.entries()) {

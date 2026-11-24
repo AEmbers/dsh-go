@@ -236,12 +236,44 @@ export function readAntigravityMessages(rawId, options = {}) {
 
     if (row.type === 'USER_INPUT' && row.source === 'USER_EXPLICIT') {
       const text = unwrapUserRequest(row.content);
-      if (!text) continue;
+      const mediaParts = [];
+      if (Array.isArray(row.media)) {
+        for (const m of row.media) {
+          if (!m || typeof m !== 'object') continue;
+          const mime = typeof m.mime_type === 'string' ? m.mime_type.trim() : '';
+          const rawUri = typeof m.uri === 'string' ? m.uri.trim() : '';
+          if (!mime || !/^image\//i.test(mime) || !rawUri) continue;
+          let filePath = decodeFileUri(rawUri);
+          if (/^\/[A-Za-z]:[\\/]/.test(filePath)) filePath = filePath.slice(1);
+          if (!filePath) continue;
+          let bytes;
+          try {
+            if (fs.existsSync(filePath)) {
+              bytes = fs.statSync(filePath).size;
+            }
+          } catch {
+            // ignore stat error
+          }
+          mediaParts.push({
+            type: 'image',
+            attachment: {
+              attachmentId: `wb-file:${filePath}`,
+              mediaType: mime,
+              name: path.basename(filePath),
+              ...(bytes !== undefined ? { bytes } : {}),
+            },
+          });
+        }
+      }
+      if (!text && mediaParts.length === 0) continue;
+      const parts = [];
+      if (text) parts.push({ type: 'text', text });
+      parts.push(...mediaParts);
       messages.push({
         messageId: id,
         role: 'user',
         createdAt,
-        parts: [{ type: 'text', text }],
+        parts,
       });
       continue;
     }

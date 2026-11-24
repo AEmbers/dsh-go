@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'chat_state.dart';
 import 'connection_state.dart';
 import 'sessions_state.dart';
+import 'workbench_bridge_state.dart';
 
 /// The Host calls behind the 文件 page and the file previews. [path] is
 /// absolute or relative to the workspace root ('' is the root).
@@ -77,6 +78,14 @@ final workspaceRootProvider = Provider.autoDispose.family<String?, String>((ref,
       ? ref.watch(sessionsProvider.select((s) => s.value?.where((x) => x.sessionId == sessionId).firstOrNull?.cwd))
       : null;
   if (listed != null && listed.isNotEmpty) return _trimSlash(listed);
+  if (CliSessionRef.parse(sessionId) != null && ref.exists(workbenchBridgeSessionsProvider)) {
+    final cliCwd = ref.watch(
+      workbenchBridgeSessionsProvider.select(
+        (s) => s.where((x) => x.sessionId == sessionId).firstOrNull?.cwd,
+      ),
+    );
+    if (cliCwd != null && cliCwd.isNotEmpty) return _trimSlash(cliCwd);
+  }
   final chat = chatProvider(sessionId);
   final header = ref.exists(chat) ? ref.read(chat.notifier).header?.cwd : null;
   return header == null || header.isEmpty ? null : _trimSlash(header);

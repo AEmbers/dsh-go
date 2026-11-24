@@ -576,3 +576,151 @@ test('Antigravity model catalog parser, stream-json parser, and chunked upload w
   assert.ok(capturedArgs.includes('--conversation'));
   assert.ok(capturedArgs.includes('c1'));
 });
+
+test('files/stat, read-bytes, read-text, list, wb-upload, and Antigravity USER_INPUT media parts work', async (t) => {
+  const fx = makeTempFixtures();
+  t.after(() => fs.rmSync(fx.root, { recursive: true, force: true }));
+
+  const workspaceDir = path.join(fx.root, 'ws');
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  const textFile = path.join(workspaceDir, 'hello.txt');
+  fs.writeFileSync(textFile, 'line1\nline2\nline3\n', 'utf8');
+  const binFile = path.join(workspaceDir, 'sample.png');
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02]);
+  fs.writeFileSync(binFile, pngBytes);
+
+  // 追加一条带 media 图片（无正文）的 Antigravity USER_INPUT 记录
+  const transcriptPath = path.join(fx.roots.antigravity, 'brain', fx.ids.agyId, '.system_generated', 'logs', 'transcript.jsonl');
+  fs.appendFileSync(
+    transcriptPath,
+    `\n${JSON.stringify({
+      type: 'USER_INPUT',
+      source: 'USER_EXPLICIT',
+      step_index: 99,
+      created_at: '2026-11-25T05:00:00Z',
+      content: '<USER_REQUEST>\n</USER_REQUEST>',
+      media: [{ mime_type: 'image/png', uri: `file:///${binFile.replace(/\\/g, '/')}` }],
+    })}\n`,
+  );
+
+  const uploadRoot = path.join(fx.root, 'uploads-files');
+  const manager = new CliRunManager({
+    uploadRoot,
+    resolveBinFn: () => 'fake-agy',
+    spawnFn: () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      return child;
+    },
+  });
+  const uploaded = manager.saveUploadChunk({
+    name: 'snap.png',
+    mediaType: 'image/png',
+    offset: 0,
+    chunkBase64: pngBytes.toString('base64'),
+    done: true,
+  });
+
+  const routes = createWorkbenchRoutes(
+    { get: () => ({ requestRejection: () => null }) },
+    { roots: fx.roots, runner: manager },
+  );
+
+  // 验证 Antigravity media 图片解析
+  const agyMsgs = routes.buildMessagesPayload('antigravity', fx.ids.agyId);
+  const mediaMsg = agyMsgs.messages.at(-1);
+  assert.equal(mediaMsg.role, 'user');
+  assert.equal(mediaMsg.parts[0].type, 'image');
+  assert.equal(mediaMsg.parts[0].attachment.name, 'sample.png');
+  assert.ok(mediaMsg.parts[0].attachment.attachmentId.startsWith('wb-file:'));
+
+  // 验证 file:// 与 /C:/... 规范化及 stat/read-bytes/read-text/list
+  const normalizedUri = binFile.replace(/\\/g, '/');
+  const fileUri = /^[A-Za-z]:\//.test(normalizedUri) ? `file:///${normalizedUri}` : `file://${normalizedUri}`;
+  const statRes = await routes.handleFileStat(
+    new Request('http://localhost/plugins/dsh-workbench-bridge/files/stat', {
+      method: 'POST',
+      body: JSON.stringify({ engine: 'antigravity', rawId: fx.ids.agyId, path: fileUri }),
+    }),
+  );
+  assert.equal(statRes.status, 200);
+  const statBody = await statRes.json();
+  assert.equal(statBody.bytes, pngBytes.length);
+  assert.match(statBody.version, /^\d+:\d+:\d+:\d+:\d+$/);
+
+  const bytesRes = await routes.handleFileReadBytes(
+    new Request('http://localhost/plugins/dsh-workbench-bridge/files/read-bytes', {
+      method: 'POST',
+      body: JSON.stringify({ engine: 'antigravity', rawId: fx.ids.agyId, path: fileUri, offset: 0, length: 6 }),
+    }),
+  );
+  assert.equal(bytesRes.status, 200);
+  const bytesBody = await bytesRes.json();
+  assert.equal(bytesBody.eof, false);
+  assert.deepEqual(Buffer.from(bytesBody.data, 'base64'), pngBytes.subarray(0, 6));
+
+  // wb-upload:<id> 读取
+  const upBytes = routes.buildFileReadBytesPayload({
+    engine: 'antigravity',
+    rawId: fx.ids.agyId,
+    path: `wb-upload:${uploaded.uploadId}`,
+    offset: 0,
+    length: 1024,
+  });
+  assert.equal(upBytes.eof, true);
+  assert.deepEqual(Buffer.from(upBytes.data, 'base64'), pngBytes);
+
+  // read-text 正常分页与二进制文件拒绝
+  const textRes = await routes.handleFileReadText(
+    new Request('http://localhost/plugins/dsh-workbench-bridge/files/read-text', {
+      method: 'POST',
+      body: JSON.stringify({ engine: 'antigravity', rawId: fx.ids.agyId, path: textFile, offset: 2, limit: 2 }),
+    }),
+  );
+  assert.equal(textRes.status, 200);
+  const textBody = await textRes.json();
+  assert.equal(textBody.text, 'line2\nline3');
+  assert.equal(textBody.lines, 2);
+  assert.equal(textBody.eof, true);
+
+  const binTextRes = await routes.handleFileReadText(
+    new Request('http://localhost/plugins/dsh-workbench-bridge/files/read-text', {
+      method: 'POST',
+      body: JSON.stringify({ engine: 'antigravity', rawId: fx.ids.agyId, path: binFile }),
+    }),
+  );
+  assert.equal(binTextRes.status, 400);
+  assert.equal((await binTextRes.json()).code, 'workspace-file/not-text');
+
+  // list 目录枚举
+  const listRes = await routes.handleFileList(
+    new Request('http://localhost/plugins/dsh-workbench-bridge/files/list', {
+      method: 'POST',
+      body: JSON.stringify({ engine: 'antigravity', rawId: fx.ids.agyId, path: workspaceDir }),
+    }),
+  );
+  assert.equal(listRes.status, 200);
+  const listBody = await listRes.json();
+  assert.ok(listBody.entries.some((e) => e.name === 'hello.txt' && e.type === 'file'));
+
+  // 缺失文件 & 目录当作普通文件读取的错误码
+  const missingRes = await routes.handleFileStat(
+    new Request('http://localhost/plugins/dsh-workbench-bridge/files/stat', {
+      method: 'POST',
+      body: JSON.stringify({ engine: 'antigravity', rawId: fx.ids.agyId, path: path.join(workspaceDir, 'nope.png') }),
+    }),
+  );
+  assert.equal(missingRes.status, 404);
+  assert.equal((await missingRes.json()).code, 'workspace-file/not-found');
+
+  const dirStatRes = await routes.handleFileStat(
+    new Request('http://localhost/plugins/dsh-workbench-bridge/files/stat', {
+      method: 'POST',
+      body: JSON.stringify({ engine: 'antigravity', rawId: fx.ids.agyId, path: workspaceDir }),
+    }),
+  );
+  assert.equal(dirStatRes.status, 400);
+  assert.equal((await dirStatRes.json()).code, 'workspace-file/not-regular-file');
+});
