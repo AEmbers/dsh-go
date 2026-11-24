@@ -515,6 +515,36 @@ class RemoteTunnelCarrier extends DshCarrier implements WorkspaceUploadCarrier {
     );
   }
 
+  @override
+  Future<Map<String, Object?>?> invokeWorkbenchBridgeRpc(
+    String method, [
+    Map<String, Object?> params = const {},
+    Duration? timeout,
+  ]) async {
+    final session = await _ensureSession();
+    try {
+      final response = await session.rpc.call(method, params, timeout: timeout ?? callTimeout);
+      if (response is Map) {
+        return response.map((k, v) => MapEntry('$k', v));
+      }
+      throw DshProtocolException('$method returned non-object response over remote tunnel');
+    } on RemoteRpcException catch (error) {
+      if (error.isLocal && error.code != 'FRAME_TOO_LARGE' && error.code != 'RATE_LIMITED') {
+        throw DshTransportException(
+          error.code == 'RPC_TIMEOUT'
+              ? '$method timed out over the remote tunnel'
+              : 'remote connection lost during $method: ${error.message}',
+          error,
+        );
+      }
+      throw DshRemoteException(error.code, error.message, {
+        ...asMapOrEmpty(error.details),
+        'remote': true,
+        if (error.retryable) 'retryable': true,
+      });
+    }
+  }
+
   RpcResult _parseResult(String endpoint, Object? response) {
     final map = asMap(response);
     if (map == null) throw DshProtocolException('$endpoint: invalid remote Gateway result');

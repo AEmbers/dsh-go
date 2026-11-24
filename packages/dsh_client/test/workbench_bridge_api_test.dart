@@ -162,6 +162,105 @@ void main() {
     final client = await connect();
     await expectLater(client.readWorkbenchBridgeSessions(), throwsA(isA<WorkbenchBridgeUnavailableException>()));
   });
+
+  test('supports non-HTTP RPC bridge carrier and maps METHOD_NOT_FOUND cleanly', () async {
+    final carrier = _FakeRpcCarrier((method, params) async {
+      return switch (method) {
+        'workbench.bridge.health' => {
+          'ok': true,
+          'engines': {
+            'codex': {'installed': true, 'executable': 'codex'},
+          },
+        },
+        'workbench.bridge.sessions' when params['ifNoneMatch'] == '"e1"' => {'ok': true, 'notModified': true, 'etag': '"e1"'},
+        'workbench.bridge.sessions' => {
+          'ok': true,
+          'etag': '"e1"',
+          'sessions': [
+            {
+              'engine': 'codex',
+              'rawId': 'cx-1',
+              'sessionId': 'cli:codex:cx-1',
+              'title': 'Codex Remote Task',
+              'updatedAt': 1795424852000,
+              'running': true,
+            },
+          ],
+        },
+        'workbench.bridge.messages' => {
+          'ok': true,
+          'engine': 'codex',
+          'rawId': 'cx-1',
+          'sessionId': 'cli:codex:cx-1',
+          'running': false,
+          'messages': const <Object?>[],
+        },
+        'workbench.bridge.prompt' => {
+          'ok': true,
+          'sessionId': 'cli:codex:cx-1',
+          'rawId': 'cx-1',
+          'runId': 'run-1',
+          'running': true,
+        },
+        'workbench.bridge.abort' => {'ok': true, 'aborted': true},
+        _ => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing'),
+      };
+    });
+    final client = await DshClient.connectCarrier(carrier, startMux: false);
+    addTearDown(client.close);
+
+    final health = await client.readWorkbenchBridgeHealth();
+    expect(health.engines[CliEngine.codex]?.installed, isTrue);
+
+    final res = await client.readWorkbenchBridgeSessions();
+    expect(res?.etag, '"e1"');
+    expect(res?.sessions.single.cliEngineOrDefault, CliEngine.codex);
+
+    expect(await client.readWorkbenchBridgeSessions(ifNoneMatch: '"e1"'), isNull);
+    expect((await client.readWorkbenchBridgeMessages(CliEngine.codex, 'cx-1')).engine, CliEngine.codex);
+    expect((await client.sendWorkbenchBridgePrompt(engine: CliEngine.codex, rawSessionId: 'cx-1', prompt: 'hi')).running, isTrue);
+    expect(await client.abortWorkbenchBridgeRun(CliEngine.codex, 'cx-1'), isTrue);
+
+    final unavailableClient = await DshClient.connectCarrier(
+      _FakeRpcCarrier((method, params) async => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing')),
+      startMux: false,
+    );
+    addTearDown(unavailableClient.close);
+    await expectLater(unavailableClient.readWorkbenchBridgeSessions(), throwsA(isA<WorkbenchBridgeUnavailableException>()));
+  });
+}
+
+extension _SessionEngineX on WorkbenchCliSession {
+  CliEngine get cliEngineOrDefault => engine;
+}
+
+class _FakeRpcCarrier extends DshCarrier {
+  _FakeRpcCarrier(this._onBridgeRpc);
+
+  final Future<Map<String, Object?>?> Function(String method, Map<String, Object?> params) _onBridgeRpc;
+
+  @override
+  String get kind => 'fake-remote-rpc';
+
+  @override
+  DshTracer? get tracer => null;
+
+  @override
+  Future<RpcResult> call(String endpoint, Map<String, Object?> args, {Duration? timeout}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<DshMuxLink> openLink(MuxOptions options) => throw UnimplementedError();
+
+  @override
+  Future<Map<String, Object?>?> invokeWorkbenchBridgeRpc(
+    String method, [
+    Map<String, Object?> params = const {},
+    Duration? timeout,
+  ]) => _onBridgeRpc(method, params);
+
+  @override
+  Future<void> close() async {}
 }
 
 class _MockRequest {

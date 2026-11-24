@@ -33,13 +33,34 @@ export function probeCliEngines(options = {}) {
 export function scanAllCliSessions(options = {}) {
   const roots = options.roots || {};
   const limit = options.limit ?? 80;
-  const all = [
-    ...scanAntigravitySessions({ rootDir: roots.antigravity, limit }),
-    ...scanClaudeSessions({ rootDir: roots.claude, limit }),
-    ...scanCodexSessions({ rootDir: roots.codex, limit }),
+  const perEngine = [
+    scanAntigravitySessions({ rootDir: roots.antigravity, limit }),
+    scanClaudeSessions({ rootDir: roots.claude, limit }),
+    scanCodexSessions({ rootDir: roots.codex, limit }),
   ];
-  all.sort((a, b) => b.updatedAt - a.updatedAt);
-  return all.slice(0, limit);
+
+  // 先为每个有会话的引擎保底分配配额，避免活跃度更高的单一引擎将其他引擎全部挤出列表
+  const guaranteedPerEngine = Math.max(1, Math.min(15, Math.floor(limit / 3)));
+  const selected = [];
+  const seen = new Set();
+  for (const list of perEngine) {
+    for (const item of list.slice(0, guaranteedPerEngine)) {
+      if (selected.length >= limit || seen.has(item.sessionId)) continue;
+      seen.add(item.sessionId);
+      selected.push(item);
+    }
+  }
+
+  const remaining = perEngine.flat().filter((item) => !seen.has(item.sessionId));
+  remaining.sort((a, b) => b.updatedAt - a.updatedAt);
+  for (const item of remaining) {
+    if (selected.length >= limit) break;
+    seen.add(item.sessionId);
+    selected.push(item);
+  }
+
+  selected.sort((a, b) => b.updatedAt - a.updatedAt);
+  return selected;
 }
 
 /**

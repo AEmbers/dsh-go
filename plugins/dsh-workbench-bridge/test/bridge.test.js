@@ -7,7 +7,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
+import { attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
 import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
 import { readCliSessionMessages, scanAllCliSessions } from '../lib/scanners/index.js';
 
@@ -333,4 +333,103 @@ test('createNodePrefixHandler serves real Node HTTP requests with JSON body pars
     headers: { connection: 'close' },
   });
   assert.equal(badMethod.status, 405);
+});
+
+test('Antigravity empty SQLite title falls back to transcript and multi-engine quota preserves Codex', async (t) => {
+  const fx = makeTempFixtures();
+  t.after(() => fs.rmSync(fx.root, { recursive: true, force: true }));
+
+  const emptyId = '44444444-4444-4444-4444-444444444444';
+  const emptyLogDir = path.join(fx.roots.antigravity, 'brain', emptyId, '.system_generated', 'logs');
+  fs.mkdirSync(emptyLogDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(emptyLogDir, 'transcript.jsonl'),
+    JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-11-24T01:00:00Z',
+      content: '<USER_REQUEST>\nFallback Title From Transcript\n</USER_REQUEST>',
+    }),
+    'utf8',
+  );
+  const db = new DatabaseSync(path.join(fx.roots.antigravity, 'conversation_summaries.db'));
+  db.prepare(
+    `INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, last_modified_time, workspace_uris, not_fully_idle, killed)
+     VALUES (?, '', '', 1, ?, '[]', 0, 0)`,
+  ).run(emptyId, '2026-11-24T01:00:00Z');
+  // 再写入两个更新的 Antigravity 记录后按 limit=3 扫描，仍能保留 Codex 与 Claude
+  for (const extra of ['55555555-5555-5555-5555-555555555555', '66666666-6666-6666-6666-666666666666']) {
+    db.prepare(
+      `INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, last_modified_time, workspace_uris, not_fully_idle, killed)
+       VALUES (?, ?, '', 1, ?, '[]', 0, 0)`,
+    ).run(extra, extra, '2026-11-24T02:00:00Z');
+  }
+  db.close();
+
+  const limited = scanAllCliSessions({ roots: fx.roots, limit: 3 });
+  const engines = new Set(limited.map((item) => item.engine));
+  assert.equal(engines.has('antigravity'), true);
+  assert.equal(engines.has('claude'), true);
+  assert.equal(engines.has('codex'), true);
+
+  const full = scanAllCliSessions({ roots: fx.roots, limit: 20 });
+  const fallbackItem = full.find((item) => item.rawId === emptyId);
+  assert.equal(fallbackItem?.title, 'Fallback Title From Transcript');
+});
+
+test('attachRemoteRpcBridge handles workbench.bridge.* calls and restores original invoke on dispose', async (t) => {
+  const fx = makeTempFixtures();
+  t.after(() => fs.rmSync(fx.root, { recursive: true, force: true }));
+
+  class FakeRpcError extends Error {
+    constructor(code, message) {
+      super(message);
+      this.code = code;
+    }
+  }
+  class FakeRpcRouter {
+    async invoke(method, params) {
+      return { passthrough: method, params };
+    }
+  }
+
+  const routes = createWorkbenchRoutes(
+    { get: () => ({ requestRejection: () => null }) },
+    { roots: fx.roots },
+  );
+  t.after(() => routes.runner.dispose());
+
+  const detach = attachRemoteRpcBridge(FakeRpcRouter, routes, FakeRpcError);
+  const router = new FakeRpcRouter();
+
+  const health = await router.invoke('workbench.bridge.health', {});
+  assert.equal(health.ok, true);
+  assert.equal(health.plugin, 'dsh-workbench-bridge');
+
+  const sess1 = await router.invoke('workbench.bridge.sessions', {});
+  assert.equal(sess1.sessions.length, 3);
+  assert.ok(sess1.etag);
+
+  const sess304 = await router.invoke('workbench.bridge.sessions', { ifNoneMatch: sess1.etag });
+  assert.equal(sess304.notModified, true);
+
+  const msgs = await router.invoke('workbench.bridge.messages', {
+    engine: 'codex',
+    rawId: fx.ids.codexId,
+  });
+  assert.equal(msgs.engine, 'codex');
+  assert.equal(msgs.messages.length, 2);
+
+  await assert.rejects(
+    () => router.invoke('workbench.bridge.messages', { engine: 'bad', rawId: '../evil' }),
+    (err) => err instanceof FakeRpcError && err.code === 'INVALID_MESSAGE',
+  );
+
+  const other = await router.invoke('session/list', { foo: 1 });
+  assert.deepEqual(other, { passthrough: 'session/list', params: { foo: 1 } });
+
+  detach();
+  const afterDetach = await router.invoke('workbench.bridge.health', {});
+  assert.deepEqual(afterDetach, { passthrough: 'workbench.bridge.health', params: {} });
 });

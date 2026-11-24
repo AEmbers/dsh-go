@@ -280,7 +280,28 @@ final class WorkbenchBridgeUnavailableException extends DshException {
 }
 
 extension WorkbenchBridgeApi on DshClient {
+  Future<Map<String, Object?>> _callRpcBridge(
+    String method, [
+    Map<String, Object?> params = const {},
+    Duration? timeout,
+  ]) async {
+    try {
+      final result = await carrier.invokeWorkbenchBridgeRpc(method, params, timeout);
+      if (result == null) throw const WorkbenchBridgeUnavailableException();
+      return result;
+    } on DshRemoteException catch (error) {
+      if (error.code == 'METHOD_NOT_FOUND' || error.code == 'FEATURE_NOT_SUPPORTED') {
+        throw const WorkbenchBridgeUnavailableException();
+      }
+      rethrow;
+    }
+  }
+
   Future<WorkbenchBridgeHealth> readWorkbenchBridgeHealth({Duration timeout = const Duration(seconds: 10)}) async {
+    if (carrier is! DshHttpCarrier) {
+      final body = await _callRpcBridge('workbench.bridge.health', const {}, timeout);
+      return WorkbenchBridgeHealth.fromJson(body);
+    }
     final connection = _bridgeConnection(workbenchBridgeHealthPath);
     final response = await _bridgeGet(
       connection,
@@ -299,13 +320,29 @@ extension WorkbenchBridgeApi on DshClient {
     return WorkbenchBridgeHealth.fromJson(body);
   }
 
-  /// `GET /plugins/dsh-workbench-bridge/sessions`.
+  /// `GET /plugins/dsh-workbench-bridge/sessions` or `workbench.bridge.sessions` RPC.
   /// Returns `null` on `304 Not Modified`.
   Future<WorkbenchBridgeSessions?> readWorkbenchBridgeSessions({
     String? ifNoneMatch,
     Duration timeout = const Duration(seconds: 15),
     Future<void>? cancelSignal,
   }) async {
+    if (carrier is! DshHttpCarrier) {
+      final body = await _callRpcBridge(
+        'workbench.bridge.sessions',
+        {if (ifNoneMatch != null) 'ifNoneMatch': ifNoneMatch},
+        timeout,
+      );
+      if (body['notModified'] == true) return null;
+      final rawList = asListOrEmpty(body['sessions']);
+      return WorkbenchBridgeSessions(
+        sessions: [
+          for (final entry in rawList)
+            if (asMap(entry) case final map?) WorkbenchCliSession.fromJson(map),
+        ],
+        etag: asString(body['etag']),
+      );
+    }
     final connection = _bridgeConnection(workbenchBridgeSessionsPath);
     final response = await _bridgeGet(
       connection,
@@ -334,13 +371,21 @@ extension WorkbenchBridgeApi on DshClient {
     );
   }
 
-  /// `GET /plugins/dsh-workbench-bridge/sessions/:engine/:id/messages`.
+  /// `GET /plugins/dsh-workbench-bridge/sessions/:engine/:id/messages` or RPC.
   Future<WorkbenchCliChatSnapshot> readWorkbenchBridgeMessages(
     CliEngine engine,
     String rawId, {
     Duration timeout = const Duration(seconds: 20),
   }) async {
     _requireSafeId(rawId, 'rawId');
+    if (carrier is! DshHttpCarrier) {
+      final body = await _callRpcBridge(
+        'workbench.bridge.messages',
+        {'engine': engine.wire, 'rawId': rawId},
+        timeout,
+      );
+      return WorkbenchCliChatSnapshot.fromJson(body);
+    }
     final path = '/plugins/dsh-workbench-bridge/sessions/${engine.wire}/${Uri.encodeComponent(rawId)}/messages';
     final connection = _bridgeConnection(path);
     final response = await _bridgeGet(
@@ -360,7 +405,7 @@ extension WorkbenchBridgeApi on DshClient {
     return WorkbenchCliChatSnapshot.fromJson(body);
   }
 
-  /// `POST /plugins/dsh-workbench-bridge/sessions/prompt`.
+  /// `POST /plugins/dsh-workbench-bridge/sessions/prompt` or RPC.
   Future<WorkbenchCliPromptResult> sendWorkbenchBridgePrompt({
     required CliEngine engine,
     String? rawSessionId,
@@ -380,6 +425,10 @@ extension WorkbenchBridgeApi on DshClient {
       'prompt': prompt,
       if (model != null && model.isNotEmpty) 'model': model,
     };
+    if (carrier is! DshHttpCarrier) {
+      final body = await _callRpcBridge('workbench.bridge.prompt', payload, timeout);
+      return WorkbenchCliPromptResult.fromJson(body);
+    }
     final response = await _bridgeConnection(workbenchBridgePromptPath).postBytes(
       workbenchBridgePromptPath,
       utf8.encode(jsonEncode(payload)),
@@ -399,13 +448,21 @@ extension WorkbenchBridgeApi on DshClient {
     return WorkbenchCliPromptResult.fromJson(body);
   }
 
-  /// `POST /plugins/dsh-workbench-bridge/sessions/abort`.
+  /// `POST /plugins/dsh-workbench-bridge/sessions/abort` or RPC.
   Future<bool> abortWorkbenchBridgeRun(
     CliEngine engine,
     String rawId, {
     Duration timeout = const Duration(seconds: 15),
   }) async {
     _requireSafeId(rawId, 'rawId');
+    if (carrier is! DshHttpCarrier) {
+      final body = await _callRpcBridge(
+        'workbench.bridge.abort',
+        {'engine': engine.wire, 'rawId': rawId},
+        timeout,
+      );
+      return body['aborted'] == true;
+    }
     final response = await _bridgeConnection(workbenchBridgeAbortPath).postBytes(
       workbenchBridgeAbortPath,
       utf8.encode(jsonEncode({'engine': engine.wire, 'rawId': rawId})),

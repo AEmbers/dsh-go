@@ -1859,7 +1859,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       generate: readOnly ? null : generate,
       risk: !pillsBesideStrip,
     );
-    final workbench = !typing && !isChild;
+    final workbench = !shortWindow && !isChild;
     final cli = workbench && ref.watch(workbenchSurfaceProvider) == WorkbenchSurface.cli;
     final headerHeight = workbench
         ? WorkbenchChrome.extentOf(context) + ChatHeader.barHeightOf(context)

@@ -29,6 +29,49 @@ function parseWorkspaceUri(rawUris) {
 }
 
 /**
+ * 从 transcript.jsonl 头部快速提取首条用户输入作为标题回退（不读取完整大文件）。
+ *
+ * @param {string} rootDir
+ * @param {string} conversationId
+ * @returns {string | null}
+ */
+function readTitleFromTranscriptHead(rootDir, conversationId) {
+  const logPath = path.join(rootDir, 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+  if (!fs.existsSync(logPath)) return null;
+  let fd;
+  try {
+    fd = fs.openSync(logPath, 'r');
+    const buf = Buffer.alloc(64 * 1024);
+    const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
+    const lines = buf.toString('utf8', 0, bytesRead).split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let row;
+      try {
+        row = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (row && row.type === 'USER_INPUT' && row.source === 'USER_EXPLICIT') {
+        const text = unwrapUserRequest(row.content).split(/\r?\n/)[0].trim();
+        if (text) return text.slice(0, 80);
+      }
+    }
+  } catch {
+    // 忽略读取异常
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * 扫描 Antigravity 会话摘要列表（优先读只读 SQLite，失败时回退扫描 brain 目录）。
  *
  * @param {{ rootDir?: string, limit?: number }} [options]
@@ -52,24 +95,29 @@ export function scanAntigravitySessions(options = {}) {
         )
         .all(limit);
 
-      return rows
-        .filter((row) => isSafeSessionId(row.conversation_id))
-        .map((row) => {
-          const title = String(row.title || row.preview || '').trim() || row.conversation_id;
-          const updatedAt = toEpochMs(row.last_modified_time);
-          const running = Boolean(row.not_fully_idle) && !row.killed;
-          return {
-            engine: 'antigravity',
-            rawId: String(row.conversation_id),
-            sessionId: `cli:antigravity:${row.conversation_id}`,
-            title,
-            cwd: parseWorkspaceUri(row.workspace_uris),
-            updatedAt,
-            running,
-            blank: false,
-            model: null,
-          };
+      const items = [];
+      for (const row of rows) {
+        if (!isSafeSessionId(row.conversation_id)) continue;
+        const summaryTitle = String(row.title || row.preview || '').trim();
+        const transcriptTitle = summaryTitle ? null : readTitleFromTranscriptHead(rootDir, String(row.conversation_id));
+        const title = summaryTitle || transcriptTitle;
+        // 无摘要且无用户显式提问（通常为后台子智能体会话）时跳过，避免侧栏充斥 UUID
+        if (!title) continue;
+        const updatedAt = toEpochMs(row.last_modified_time);
+        const running = Boolean(row.not_fully_idle) && !row.killed;
+        items.push({
+          engine: 'antigravity',
+          rawId: String(row.conversation_id),
+          sessionId: `cli:antigravity:${row.conversation_id}`,
+          title,
+          cwd: parseWorkspaceUri(row.workspace_uris),
+          updatedAt,
+          running,
+          blank: false,
+          model: null,
         });
+      }
+      return items;
     } catch {
       // SQLite 被独占锁或损坏时回退目录扫描
     } finally {

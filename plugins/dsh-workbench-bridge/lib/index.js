@@ -1,6 +1,11 @@
 /**
- * @file DSH Workbench Bridge 插件入口：向 DSH webServer 注册多 CLI 聚合路由。
+ * @file DSH Workbench Bridge 插件入口：向 DSH webServer 注册多 CLI 聚合路由，并可选挂载到 ds-harness-remote E2EE RPC 通道。
  */
+import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { makeBridgeGuard } from './guard.js';
 import { CliRunManager } from './runner.js';
 import { CLI_ENGINES, computeEtag, isSafeSessionId } from './scanners/common.js';
@@ -10,6 +15,8 @@ export const name = 'dsh-workbench-bridge';
 export const BASE = '/plugins/dsh-workbench-bridge';
 
 const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_MESSAGES_BYTES = 2 * 1024 * 1024;
+const RPC_BRIDGE_PATCH_KEY = Symbol.for('dsh-workbench-bridge.rpc-patch');
 
 /**
  * 读取 Node.js IncomingMessage 的 UTF-8 请求体，并在超出上限时报错。
@@ -124,7 +131,31 @@ export function mergeScannedWithRuns(scanned, runner) {
 }
 
 /**
- * 创建全部路由处理函数（同时供插件注册与独立测试使用）。
+ * 按字节预算从尾部保留最新消息，避免超出远程 RPC 单帧响应限制。
+ *
+ * @param {Array<object>} messages
+ * @param {number} maxBytes
+ * @returns {Array<object>}
+ */
+function boundMessagesBySize(messages, maxBytes = MAX_MESSAGES_BYTES) {
+  if (!Array.isArray(messages) || messages.length === 0) return [];
+  const totalBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8');
+  if (totalBytes <= maxBytes) return messages;
+  const kept = [];
+  let bytes = 2; // []
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const item = messages[i];
+    const encodedLen = Buffer.byteLength(JSON.stringify(item), 'utf8') + (kept.length > 0 ? 1 : 0);
+    if (bytes + encodedLen > maxBytes && kept.length > 0) break;
+    kept.push(item);
+    bytes += encodedLen;
+  }
+  kept.reverse();
+  return kept;
+}
+
+/**
+ * 创建全部路由处理函数（同时供 HTTP 路由、ds-harness-remote RPC 与独立测试使用）。
  *
  * @param {object} ctx
  * @param {{ roots?: object, binaries?: object, runner?: CliRunManager, requireConnection?: boolean }} [options]
@@ -138,32 +169,25 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     return err ? jsonResponse(err.status, err.body) : null;
   };
 
-  async function handleHealth(req) {
-    const blocked = rejectIfNeeded(req);
-    if (blocked) return blocked;
+  function buildHealthPayload() {
     const engines = probeCliEngines({ binaries: options.binaries });
-    return jsonResponse(200, { ok: true, plugin: name, engines });
+    return { ok: true, plugin: name, engines };
   }
 
-  async function handleSessions(req) {
-    const blocked = rejectIfNeeded(req);
-    if (blocked) return blocked;
+  function buildSessionsPayload() {
     const scanned = scanAllCliSessions({ roots: options.roots });
     const sessions = mergeScannedWithRuns(scanned, runner);
     const payload = { ok: true, sessions };
     const etag = computeEtag(JSON.stringify(payload));
-    const ifNoneMatch = typeof req?.headers?.get === 'function' ? req.headers.get('if-none-match') : req?.headers?.['if-none-match'];
-    if (ifNoneMatch && ifNoneMatch === etag) {
-      return new Response(null, { status: 304, headers: { etag } });
-    }
-    return jsonResponse(200, payload, { etag });
+    return { payload, etag };
   }
 
-  async function handleMessages(req, engine, rawId) {
-    const blocked = rejectIfNeeded(req);
-    if (blocked) return blocked;
+  function buildMessagesPayload(engine, rawId) {
     if (!CLI_ENGINES.has(engine) || !isSafeSessionId(rawId)) {
-      return jsonResponse(400, { code: 'invalid_target', message: 'Invalid engine or session id' });
+      const err = new Error('Invalid engine or session id');
+      err.status = 400;
+      err.code = 'invalid_target';
+      throw err;
     }
     const overlay = runner.getOverlay(engine, rawId);
     const targetReadId = overlay?.resolvedRawId || rawId;
@@ -204,7 +228,7 @@ export function createWorkbenchRoutes(ctx, options = {}) {
       }
     }
 
-    return jsonResponse(200, {
+    return {
       ok: true,
       engine,
       rawId,
@@ -212,8 +236,60 @@ export function createWorkbenchRoutes(ctx, options = {}) {
       model: overlay?.model || read.model || null,
       cwd: overlay?.cwd || read.cwd || null,
       running: Boolean(overlay?.running),
-      messages,
+      messages: boundMessagesBySize(messages),
+    };
+  }
+
+  function runPromptPayload(body) {
+    const safeBody = body && typeof body === 'object' ? body : {};
+    return runner.startRun({
+      engine: safeBody.engine,
+      rawSessionId: safeBody.rawSessionId ?? safeBody.sessionId ?? null,
+      cwd: typeof safeBody.cwd === 'string' ? safeBody.cwd : null,
+      prompt: safeBody.prompt,
+      model: typeof safeBody.model === 'string' ? safeBody.model : null,
     });
+  }
+
+  function runAbortPayload(body) {
+    const safeBody = body && typeof body === 'object' ? body : {};
+    const engine = String(safeBody.engine || '');
+    const rawId = String(safeBody.rawSessionId ?? safeBody.rawId ?? safeBody.sessionId ?? '');
+    if (!CLI_ENGINES.has(engine) || !isSafeSessionId(rawId)) {
+      const err = new Error('Invalid engine or session id');
+      err.status = 400;
+      err.code = 'invalid_target';
+      throw err;
+    }
+    const aborted = runner.abortRun(engine, rawId);
+    return { ok: true, aborted };
+  }
+
+  async function handleHealth(req) {
+    const blocked = rejectIfNeeded(req);
+    if (blocked) return blocked;
+    return jsonResponse(200, buildHealthPayload());
+  }
+
+  async function handleSessions(req) {
+    const blocked = rejectIfNeeded(req);
+    if (blocked) return blocked;
+    const { payload, etag } = buildSessionsPayload();
+    const ifNoneMatch = typeof req?.headers?.get === 'function' ? req.headers.get('if-none-match') : req?.headers?.['if-none-match'];
+    if (ifNoneMatch && ifNoneMatch === etag) {
+      return new Response(null, { status: 304, headers: { etag } });
+    }
+    return jsonResponse(200, payload, { etag });
+  }
+
+  async function handleMessages(req, engine, rawId) {
+    const blocked = rejectIfNeeded(req);
+    if (blocked) return blocked;
+    try {
+      return jsonResponse(200, buildMessagesPayload(engine, rawId));
+    } catch (err) {
+      return jsonResponse(err.status || 400, { code: err.code || 'invalid_target', message: err.message });
+    }
   }
 
   async function handlePrompt(req) {
@@ -226,14 +302,7 @@ export function createWorkbenchRoutes(ctx, options = {}) {
       return jsonResponse(err.status || 400, { code: err.code || 'bad_json', message: err.message });
     }
     try {
-      const result = runner.startRun({
-        engine: body.engine,
-        rawSessionId: body.rawSessionId ?? body.sessionId ?? null,
-        cwd: typeof body.cwd === 'string' ? body.cwd : null,
-        prompt: body.prompt,
-        model: typeof body.model === 'string' ? body.model : null,
-      });
-      return jsonResponse(200, result);
+      return jsonResponse(200, runPromptPayload(body));
     } catch (err) {
       return jsonResponse(err.status || 500, { code: err.code || 'prompt_failed', message: err.message });
     }
@@ -248,17 +317,20 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     } catch (err) {
       return jsonResponse(err.status || 400, { code: err.code || 'bad_json', message: err.message });
     }
-    const engine = String(body.engine || '');
-    const rawId = String(body.rawSessionId ?? body.sessionId ?? '');
-    if (!CLI_ENGINES.has(engine) || !isSafeSessionId(rawId)) {
-      return jsonResponse(400, { code: 'invalid_target', message: 'Invalid engine or session id' });
+    try {
+      return jsonResponse(200, runAbortPayload(body));
+    } catch (err) {
+      return jsonResponse(err.status || 400, { code: err.code || 'invalid_target', message: err.message });
     }
-    const aborted = runner.abortRun(engine, rawId);
-    return jsonResponse(200, { ok: true, aborted });
   }
 
   return {
     runner,
+    buildHealthPayload,
+    buildSessionsPayload,
+    buildMessagesPayload,
+    runPromptPayload,
+    runAbortPayload,
     handleHealth,
     handleSessions,
     handleMessages,
@@ -329,6 +401,127 @@ export function createNodePrefixHandler(routes) {
 }
 
 /**
+ * 将 `workbench.bridge.*` E2EE RPC 方法挂接到 `ds-harness-remote` 的 `RpcRouter.prototype.invoke`。
+ * 仅在已经过 Noise_IK 双向认证与设备配对授权的会话中触发；卸载时完整还原原方法。
+ *
+ * @param {{ prototype?: { invoke?: Function } }} RpcRouterClass
+ * @param {ReturnType<typeof createWorkbenchRoutes>} routes
+ * @param {new (code: string, message: string, details?: object) => Error} [RpcErrorClass]
+ * @returns {() => void}
+ */
+export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
+  const proto = RpcRouterClass?.prototype;
+  if (!proto || typeof proto.invoke !== 'function') {
+    return () => {};
+  }
+  const existing = proto[RPC_BRIDGE_PATCH_KEY];
+  if (existing && typeof existing.dispose === 'function') {
+    existing.dispose();
+  }
+  const originalInvoke = proto.invoke;
+
+  function toRpcError(code, err) {
+    const msg = String(err?.message || err || 'Workbench bridge RPC failed');
+    const mappedCode = code || (err?.status === 400 ? 'INVALID_MESSAGE' : 'FAILED');
+    if (typeof RpcErrorClass === 'function') {
+      return new RpcErrorClass(mappedCode, msg, err?.code ? { bridgeCode: err.code } : undefined);
+    }
+    const e = new Error(msg);
+    e.code = mappedCode;
+    return e;
+  }
+
+  proto.invoke = async function patchedWorkbenchInvoke(method, params) {
+    if (typeof method === 'string' && method.startsWith('workbench.bridge.')) {
+      const p = params && typeof params === 'object' ? params : {};
+      try {
+        switch (method) {
+          case 'workbench.bridge.health':
+            return routes.buildHealthPayload();
+          case 'workbench.bridge.sessions': {
+            const { payload, etag } = routes.buildSessionsPayload();
+            const ifNoneMatch = typeof p.ifNoneMatch === 'string' ? p.ifNoneMatch : null;
+            if (ifNoneMatch && ifNoneMatch === etag) {
+              return { ok: true, notModified: true, etag };
+            }
+            return { ...payload, etag };
+          }
+          case 'workbench.bridge.messages':
+            return routes.buildMessagesPayload(String(p.engine || ''), String(p.rawId || ''));
+          case 'workbench.bridge.prompt':
+            return routes.runPromptPayload(p);
+          case 'workbench.bridge.abort':
+            return routes.runAbortPayload(p);
+          default:
+            break;
+        }
+      } catch (err) {
+        throw toRpcError(err?.status === 400 ? 'INVALID_MESSAGE' : 'FAILED', err);
+      }
+    }
+    return originalInvoke.call(this, method, params);
+  };
+
+  const dispose = () => {
+    if (proto[RPC_BRIDGE_PATCH_KEY]?.dispose === dispose) {
+      proto.invoke = originalInvoke;
+      delete proto[RPC_BRIDGE_PATCH_KEY];
+    }
+  };
+  proto[RPC_BRIDGE_PATCH_KEY] = { dispose };
+  return dispose;
+}
+
+/**
+ * 解析并挂接宿主环境中的 `ds-harness-remote`（若未安装则安静跳过）。
+ *
+ * @param {ReturnType<typeof createWorkbenchRoutes>} routes
+ * @param {any} ctx
+ * @returns {() => void}
+ */
+export function installRemoteRpcBridge(routes, ctx) {
+  let disposed = false;
+  let detach = () => {};
+
+  const candidates = [
+    ctx?.baseDir,
+    ctx?.root?.baseDir,
+    process.cwd(),
+    path.join(os.homedir(), '.dsh', 'profiles', 'desktop'),
+    import.meta.dirname,
+  ].filter((dir) => typeof dir === 'string' && dir.length > 0);
+
+  let resolvedPath = null;
+  for (const dir of candidates) {
+    try {
+      const req = createRequire(path.join(dir, 'package.json'));
+      resolvedPath = req.resolve('ds-harness-remote');
+      if (resolvedPath) break;
+    } catch {
+      // 当前目录未安装 ds-harness-remote，继续探测下一个候选目录
+    }
+  }
+
+  if (resolvedPath) {
+    import(pathToFileURL(resolvedPath).href)
+      .then((mod) => {
+        if (disposed) return;
+        if (mod?.RpcRouter) {
+          detach = attachRemoteRpcBridge(mod.RpcRouter, routes, mod.RpcError);
+        }
+      })
+      .catch(() => {
+        // 忽略无法加载 ds-harness-remote 的宿主环境
+      });
+  }
+
+  return () => {
+    disposed = true;
+    detach();
+  };
+}
+
+/**
  * Cordis 插件入口函数。
  *
  * @param {any} ctx
@@ -346,13 +539,19 @@ export function apply(ctx) {
         'dsh-workbench-bridge: HTTP routes',
       );
       webCtx.effect(
+        () => installRemoteRpcBridge(routes, webCtx),
+        'dsh-workbench-bridge: ds-harness-remote RPC bridge',
+      );
+      webCtx.effect(
         () => () => routes.runner.dispose(),
         'dsh-workbench-bridge: runner cleanup',
       );
       return;
     }
     const disposeRoute = webServer.register({ kind: 'prefix', path: BASE, handler });
+    const disposeRpc = installRemoteRpcBridge(routes, webCtx);
     webCtx.on?.('dispose', () => {
+      disposeRpc();
       routes.runner.dispose();
       if (typeof disposeRoute === 'function') disposeRoute();
     });

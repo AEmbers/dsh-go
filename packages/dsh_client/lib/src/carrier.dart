@@ -63,6 +63,15 @@ abstract class DshCarrier {
   /// [DshProtocolException], [DshCarrierRefusedException]).
   Future<RpcResult> call(String endpoint, Map<String, Object?> args, {Duration? timeout});
 
+  /// Optional E2EE RPC invocation used by non-HTTP carriers (e.g.
+  /// [RemoteTunnelCarrier]) to reach host plugins like `dsh-workbench-bridge`.
+  /// Returns `null` when this carrier does not expose a custom RPC channel.
+  Future<Map<String, Object?>?> invokeWorkbenchBridgeRpc(
+    String method, [
+    Map<String, Object?> params = const {},
+    Duration? timeout,
+  ]) async => null;
+
   /// Opens a fresh physical link for [DshMux].
   ///
   /// Throw [DshHttpException] 401/403 or [DshCarrierRefusedException] when a

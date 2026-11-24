@@ -97,7 +97,7 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
       _cancelPending();
     });
 
-    if (client == null || client.carrier is! DshHttpCarrier) {
+    if (client == null) {
       return const [];
     }
 
@@ -108,7 +108,7 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
 
   Future<void> refresh() async {
     final client = _owner;
-    if (client == null || client.carrier is! DshHttpCarrier) return;
+    if (client == null) return;
     _etag = null;
     await _fetch(client, _generation);
   }
