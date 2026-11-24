@@ -330,7 +330,7 @@ extension WorkbenchBridgeApi on DshClient {
     if (carrier is! DshHttpCarrier) {
       final body = await _callRpcBridge(
         'workbench.bridge.sessions',
-        {if (ifNoneMatch != null) 'ifNoneMatch': ifNoneMatch},
+        {'ifNoneMatch': ?ifNoneMatch},
         timeout,
       );
       if (body['notModified'] == true) return null;

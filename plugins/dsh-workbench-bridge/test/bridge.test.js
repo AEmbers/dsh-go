@@ -389,6 +389,13 @@ test('attachRemoteRpcBridge handles workbench.bridge.* calls and restores origin
     }
   }
   class FakeRpcRouter {
+    async handle(message) {
+      if (message?.payload?.method === 'unknown.method') {
+        return { id: message.id, type: 'rpc.error', payload: { code: 'METHOD_NOT_FOUND' } };
+      }
+      const result = await this.invoke(message.payload.method, message.payload.params);
+      return { id: message.id, type: 'rpc.response', payload: { result } };
+    }
     async invoke(method, params) {
       return { passthrough: method, params };
     }
@@ -406,6 +413,16 @@ test('attachRemoteRpcBridge handles workbench.bridge.* calls and restores origin
   const health = await router.invoke('workbench.bridge.health', {});
   assert.equal(health.ok, true);
   assert.equal(health.plugin, 'dsh-workbench-bridge');
+
+  const handled = await router.handle({
+    id: 'req-1',
+    type: 'rpc.request',
+    payload: { method: 'workbench.bridge.health', params: {} },
+  });
+  assert.equal(handled.v, 1);
+  assert.equal(handled.type, 'rpc.response');
+  assert.equal(handled.payload.requestId, 'req-1');
+  assert.equal(handled.payload.result.plugin, 'dsh-workbench-bridge');
 
   const sess1 = await router.invoke('workbench.bridge.sessions', {});
   assert.equal(sess1.sessions.length, 3);

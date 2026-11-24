@@ -1,6 +1,7 @@
 /**
  * @file DSH Workbench Bridge 插件入口：向 DSH webServer 注册多 CLI 聚合路由，并可选挂载到 ds-harness-remote E2EE RPC 通道。
  */
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -419,6 +420,7 @@ export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
     existing.dispose();
   }
   const originalInvoke = proto.invoke;
+  const originalHandle = typeof proto.handle === 'function' ? proto.handle : null;
 
   function toRpcError(code, err) {
     const msg = String(err?.message || err || 'Workbench bridge RPC failed');
@@ -462,9 +464,52 @@ export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
     return originalInvoke.call(this, method, params);
   };
 
+  if (originalHandle) {
+    proto.handle = async function patchedWorkbenchHandle(message) {
+      const method = message?.type === 'rpc.request' ? message?.payload?.method : null;
+      if (typeof method === 'string' && method.startsWith('workbench.bridge.')) {
+        const startedAt = performance.now();
+        try {
+          const result = await this.invoke(method, message?.payload?.params);
+          this.logger?.info?.('host rpc ok', {
+            method,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+          return {
+            v: 1,
+            id: randomUUID(),
+            type: 'rpc.response',
+            timestamp: Date.now(),
+            payload: { requestId: message.id, result },
+          };
+        } catch (err) {
+          const code = String(err?.code || 'FAILED');
+          const msg = String(err?.message || err || 'Workbench bridge RPC failed');
+          this.logger?.warn?.('host rpc failed', {
+            method,
+            durationMs: Math.round(performance.now() - startedAt),
+            code,
+            retryable: false,
+          });
+          return {
+            v: 1,
+            id: randomUUID(),
+            type: 'rpc.error',
+            timestamp: Date.now(),
+            payload: { requestId: message.id, code, message: msg, retryable: false },
+          };
+        }
+      }
+      return originalHandle.call(this, message);
+    };
+  }
+
   const dispose = () => {
     if (proto[RPC_BRIDGE_PATCH_KEY]?.dispose === dispose) {
       proto.invoke = originalInvoke;
+      if (originalHandle) {
+        proto.handle = originalHandle;
+      }
       delete proto[RPC_BRIDGE_PATCH_KEY];
     }
   };
@@ -483,9 +528,16 @@ export function installRemoteRpcBridge(routes, ctx) {
   let disposed = false;
   let detach = () => {};
 
+  const safeProp = (obj, prop) => {
+    try {
+      return typeof obj?.get === 'function' ? obj.get(prop) : obj?.[prop];
+    } catch {
+      return undefined;
+    }
+  };
   const candidates = [
-    ctx?.baseDir,
-    ctx?.root?.baseDir,
+    safeProp(ctx, 'baseDir'),
+    safeProp(safeProp(ctx, 'root'), 'baseDir'),
     process.cwd(),
     path.join(os.homedir(), '.dsh', 'profiles', 'desktop'),
     import.meta.dirname,
@@ -527,32 +579,27 @@ export function installRemoteRpcBridge(routes, ctx) {
  * @param {any} ctx
  */
 export function apply(ctx) {
-  ctx.inject(['webServer'], (webCtx) => {
+  const routes = createWorkbenchRoutes(ctx);
+  const disposeRpc = installRemoteRpcBridge(routes, ctx);
+  ctx?.on?.('dispose', () => {
+    disposeRpc();
+    routes.runner.dispose();
+  });
+
+  ctx?.inject?.(['webServer'], (webCtx) => {
     const webServer = webCtx.webServer ?? webCtx.get?.('webServer');
     if (!webServer || typeof webServer.register !== 'function') return;
 
-    const routes = createWorkbenchRoutes(webCtx);
     const handler = createNodePrefixHandler(routes);
     if (typeof webCtx.effect === 'function') {
       webCtx.effect(
         () => webServer.register({ kind: 'prefix', path: BASE, handler }),
         'dsh-workbench-bridge: HTTP routes',
       );
-      webCtx.effect(
-        () => installRemoteRpcBridge(routes, webCtx),
-        'dsh-workbench-bridge: ds-harness-remote RPC bridge',
-      );
-      webCtx.effect(
-        () => () => routes.runner.dispose(),
-        'dsh-workbench-bridge: runner cleanup',
-      );
       return;
     }
     const disposeRoute = webServer.register({ kind: 'prefix', path: BASE, handler });
-    const disposeRpc = installRemoteRpcBridge(routes, webCtx);
     webCtx.on?.('dispose', () => {
-      disposeRpc();
-      routes.runner.dispose();
       if (typeof disposeRoute === 'function') disposeRoute();
     });
   });
