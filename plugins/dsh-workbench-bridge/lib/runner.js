@@ -173,6 +173,8 @@ export class CliRunManager {
     this._uploadRoot = deps.uploadRoot || path.join(os.homedir(), '.dsh', 'tmp', 'workbench-bridge-uploads');
     /** @type {Map<string, object>} key: "engine:rawId" */
     this._runs = new Map();
+    /** @type {Map<string, string>} key: "engine:pendingRawId" -> resolvedRawId */
+    this._resolvedIds = new Map();
     /** @type {Map<string, { uploadId: string, path: string, dir: string, name: string, mediaType: string, bytes: number, done: boolean, createdAt: number }>} */
     this._uploads = new Map();
   }
@@ -327,10 +329,13 @@ export class CliRunManager {
     if (!rawPrompt && attachments.length === 0) {
       throw Object.assign(new Error('prompt or attachment is required'), { status: 400, code: 'empty_prompt' });
     }
-    const requestedId = input.rawSessionId ? String(input.rawSessionId) : null;
-    if (requestedId !== null && !isSafeSessionId(requestedId)) {
+    const rawRequestedId = input.rawSessionId ? String(input.rawSessionId) : null;
+    if (rawRequestedId !== null && !isSafeSessionId(rawRequestedId)) {
       throw Object.assign(new Error('invalid sessionId'), { status: 400, code: 'invalid_session' });
     }
+    const requestedId = rawRequestedId
+      ? (this._resolvedIds.get(`${engine}:${rawRequestedId}`) || rawRequestedId)
+      : null;
 
     const displayPrompt = rawPrompt || attachments.map((a) => `[附件: ${a.name}]`).join(' ');
     const addDirs = [...new Set(attachments.map((a) => a.dir))];
@@ -415,7 +420,10 @@ export class CliRunManager {
     let lineBuffer = '';
     const applyParsed = (parsed) => {
       if (!parsed) return;
-      if (parsed.sessionId && !state.resolvedRawId) state.resolvedRawId = parsed.sessionId;
+      if (parsed.sessionId && !state.resolvedRawId) {
+        state.resolvedRawId = parsed.sessionId;
+        this._resolvedIds.set(`${engine}:${rawId}`, parsed.sessionId);
+      }
       if (parsed.reasoningDelta) state.assistantReasoning += parsed.reasoningDelta;
       if (parsed.reasoning) {
         state.assistantReasoning += (state.assistantReasoning && !state.assistantReasoning.endsWith('\n') ? '\n' : '') + parsed.reasoning;

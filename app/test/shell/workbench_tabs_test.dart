@@ -4,6 +4,7 @@
 //   flutter test test/shell/workbench_tabs_test.dart
 
 import 'package:dsh_app/state/sessions_state.dart';
+import 'package:dsh_app/state/workbench_bridge_state.dart';
 import 'package:dsh_app/state/workbench_state.dart';
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,4 +73,65 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(container.read(openSessionTabsProvider), ['b']);
   });
+
+  test('activeWorkbenchEngineProvider switches agents, recalls last session, and opens per-agent new chat', () async {
+    final sessions = _Sessions([_s('dsh-1')]);
+    final container = ProviderContainer(
+      overrides: [
+        sessionsProvider.overrideWith(() => sessions),
+        workbenchBridgeHealthProvider.overrideWith(
+          (ref) async => const WorkbenchBridgeHealth(
+            ok: true,
+            engines: {
+              CliEngine.antigravity: CliEngineAvailability(engine: CliEngine.antigravity, installed: true),
+              CliEngine.codex: CliEngineAvailability(engine: CliEngine.codex, installed: true),
+              CliEngine.claude: CliEngineAvailability(engine: CliEngine.claude, installed: false),
+            },
+          ),
+        ),
+        workbenchBridgeSessionsProvider.overrideWith(() => _FakeBridge([
+          WorkbenchCliSession(
+            engine: CliEngine.antigravity,
+            rawId: 'agy-1',
+            sessionId: 'cli:antigravity:agy-1',
+            title: 'Agy Task',
+            updatedAt: DateTime(2026, 11, 24),
+            running: false,
+          ).toSessionSummary(),
+        ])),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(sessionsProvider.future);
+    await container.read(workbenchBridgeHealthProvider.future);
+
+    expect(container.read(workbenchAvailableEnginesProvider), [
+      CliEngine.dsh,
+      CliEngine.antigravity,
+      CliEngine.codex,
+    ]);
+
+    container.read(activeWorkbenchEngineProvider.notifier).selectEngine(CliEngine.antigravity);
+    expect(container.read(activeWorkbenchEngineProvider), CliEngine.antigravity);
+    expect(container.read(currentSessionProvider), 'cli:antigravity:agy-1');
+
+    // 在 Antigravity 标签下点击新建，保持 Antigravity 激活且清空当前会话
+    container.read(activeWorkbenchEngineProvider.notifier).newChat();
+    expect(container.read(activeWorkbenchEngineProvider), CliEngine.antigravity);
+    expect(container.read(currentSessionProvider), isNull);
+
+    // 切回 DSH，恢复 DSH 会话
+    container.read(activeWorkbenchEngineProvider.notifier).selectEngine(CliEngine.dsh);
+    expect(container.read(activeWorkbenchEngineProvider), CliEngine.dsh);
+    expect(container.read(currentSessionProvider), 'dsh-1');
+  });
+}
+
+class _FakeBridge extends WorkbenchBridgeSessionsController {
+  _FakeBridge(this.rows);
+  final List<SessionSummary> rows;
+  @override
+  List<SessionSummary> build() => rows;
+  @override
+  Future<void> refresh() async {}
 }

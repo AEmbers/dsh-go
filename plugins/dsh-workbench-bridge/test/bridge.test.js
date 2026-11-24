@@ -557,4 +557,21 @@ test('Antigravity model catalog parser, stream-json parser, and chunked upload w
   const overlay = manager.getOverlay('antigravity', 'c1');
   assert.equal(overlay.assistantText, 'Seen');
   assert.equal(overlay.prompt, '[附件: pic.png]');
+
+  // 新建会话（无 rawSessionId）返回 pending-*，并自动映射 resolvedRawId
+  const fresh = manager.startRun({
+    engine: 'antigravity',
+    prompt: 'Hello new',
+  });
+  assert.ok(fresh.rawId.startsWith('pending-'));
+  await new Promise((r) => setTimeout(r, 40));
+  const freshOverlay = manager.getOverlay('antigravity', fresh.rawId);
+  assert.equal(freshOverlay.resolvedRawId, 'c1');
+  manager.startRun({
+    engine: 'antigravity',
+    rawSessionId: fresh.rawId,
+    prompt: 'Follow up',
+  });
+  assert.ok(capturedArgs.includes('--conversation'));
+  assert.ok(capturedArgs.includes('c1'));
 });

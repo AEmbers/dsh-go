@@ -222,6 +222,7 @@ class WorkbenchCliChatSnapshot {
     required this.sessionId,
     required this.running,
     required this.messages,
+    this.resolvedSessionId,
     this.model,
     this.cwd,
   });
@@ -236,6 +237,7 @@ class WorkbenchCliChatSnapshot {
       rawId: rawId,
       sessionId: sessionId,
       running: json['running'] == true,
+      resolvedSessionId: asString(json['resolvedSessionId']),
       model: asString(json['model']),
       cwd: asString(json['cwd']),
       messages: [
@@ -249,6 +251,7 @@ class WorkbenchCliChatSnapshot {
   final String rawId;
   final String sessionId;
   final bool running;
+  final String? resolvedSessionId;
   final String? model;
   final String? cwd;
   final List<WorkbenchCliMessage> messages;

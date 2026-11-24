@@ -794,6 +794,14 @@ class ChatController extends Notifier<ChatState> {
             unawaited(_syncCliSession(client, cliRef));
           }
         });
+      } else if (snap.resolvedSessionId case final resolved? when resolved != sessionId) {
+        unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+        if (ref.read(currentSessionProvider) == sessionId) {
+          if (_cliModel case final pinned?) {
+            unawaited(ref.read(chatProvider(resolved).notifier).setModel(pinned));
+          }
+          ref.read(currentSessionProvider.notifier).select(resolved);
+        }
       }
       return true;
     } catch (error) {

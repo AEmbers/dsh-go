@@ -248,6 +248,10 @@ export function createWorkbenchRoutes(ctx, options = {}) {
       engine,
       rawId,
       sessionId: `cli:${engine}:${rawId}`,
+      resolvedSessionId:
+        overlay?.resolvedRawId && overlay.resolvedRawId !== rawId
+          ? `cli:${engine}:${overlay.resolvedRawId}`
+          : null,
       model: overlay?.model || read.model || null,
       cwd: overlay?.cwd || read.cwd || null,
       running: Boolean(overlay?.running),

@@ -123,8 +123,8 @@ void main() {
     expect(find.byKey(const ValueKey('agent-chats-label')), findsOneWidget);
     expect(find.text('智能体对话'), findsOneWidget);
     expect(find.byKey(const ValueKey('cli-icon-antigravity')), findsWidgets);
-    expect(find.byKey(const ValueKey('cli-icon-claude')), findsOneWidget);
-    expect(find.byKey(const ValueKey('cli-icon-codex')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cli-icon-claude')), findsWidgets);
+    expect(find.byKey(const ValueKey('cli-icon-codex')), findsWidgets);
     expect(find.text('向 Antigravity 终端发送输入...'), findsOneWidget);
   });
 
@@ -207,5 +207,42 @@ void main() {
     expect(find.text('Gemini 4 Neon'), findsOneWidget);
     expect(find.text('管理模型'), findsNothing);
     expect(find.text('V4.1 Flash'), findsNothing);
+  });
+
+  testWidgets('top agent tabs switch engines and + opens per-agent new chat', (tester) async {
+    useWindow(tester, const Size(1280, 800));
+    mockClipboard(tester);
+    final extSessions = [
+      _cliSession(engine: CliEngine.antigravity, rawId: 'agy-1', title: 'Larch-4N', running: false),
+      _cliSession(engine: CliEngine.codex, rawId: 'cx-1', title: 'Pebble-3K', running: false),
+    ];
+
+    await tester.pumpWidget(
+      testApp(
+        HomeShell(chatBuilder: (openDrawer) => ChatScreen(onOpenDrawer: openDrawer, backdrop: false)),
+        overrides: [
+          ...homeOverrides(
+            session: 'cli:antigravity:agy-1',
+            prefs: const LayoutPrefs(loaded: true, panelOpen: false),
+            chat: (id) => const ChatState(loading: false, items: []),
+          ),
+          workbenchBridgeSessionsProvider.overrideWith(() => _FakeBridgeSessions(extSessions)),
+          terminalBackendProvider.overrideWith((ref, id) => FakeTerminalBackend(supported: false)),
+        ],
+      ),
+    );
+    await pumpFrames(tester, 4);
+
+    expect(find.byKey(const ValueKey('workbench-engine-tab-dsh')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-engine-tab-antigravity')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-engine-tab-codex')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('workbench-engine-tab-codex')));
+    await pumpFrames(tester, 4);
+    await tester.tap(find.byKey(const ValueKey('workbench-new-chat')));
+    await pumpFrames(tester, 4);
+
+    expect(find.text('Codex 新对话'), findsOneWidget);
+    expect(find.text('向 Codex 终端发送输入...'), findsOneWidget);
   });
 }

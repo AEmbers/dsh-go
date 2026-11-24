@@ -3,7 +3,7 @@
 // See THIRD_PARTY_NOTICES.md.
 //
 // The wide window's conversation chrome:
-// 1) WorkbenchTabBar sits at the top (count badge, open tabs, new-chat +);
+// 1) WorkbenchTabBar sits at the top (engine count badge, agent tabs, new-chat + for active agent);
 // 2) ChatHeader sits underneath it (menu, title pill with icon, model, refresh);
 // 3) WorkbenchModeBar sits below the header (对话 / CLI).
 // Phone layout does not build these.
@@ -23,7 +23,6 @@ import '../../common/segmented_pill.dart';
 import '../../common/status_dot.dart';
 import '../../theme/app_icons.dart';
 import '../../theme/theme.dart';
-import '../sessions_drawer.dart' show sessionTitle;
 
 /// Refreshes the host conversation list, multi-CLI bridge, and active chat.
 Future<void> refreshWorkbench(WidgetRef ref) async {
@@ -36,8 +35,8 @@ Future<void> refreshWorkbench(WidgetRef ref) async {
   await ref.read(chatProvider(id).notifier).resync();
 }
 
-/// Top strip of the wide workbench: open-tab counter, scrollable session tabs,
-/// and the `+` button to start a new chat. Owns the top status-bar inset.
+/// Top strip of the wide workbench: available agent counter, agent-switcher tabs,
+/// and the `+` button to start a new chat in the active agent.
 class WorkbenchTabBar extends ConsumerWidget {
   const WorkbenchTabBar({super.key});
 
@@ -51,11 +50,16 @@ class WorkbenchTabBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final topInset = MediaQuery.paddingOf(context).top;
-    final tabs = ref.watch(openSessionTabsProvider);
-    final current = ref.watch(currentSessionProvider);
+    final engines = ref.watch(workbenchAvailableEnginesProvider);
+    final activeEngine = ref.watch(activeWorkbenchEngineProvider);
     final sessions = ref.watch(mergedSessionsProvider).asData?.value ?? const <SessionSummary>[];
-    final byId = {for (final session in sessions) session.sessionId: session};
-    final tabCount = tabs.isEmpty && current == null ? 1 : tabs.length + (current == null ? 1 : 0);
+    final runningEngines = <CliEngine>{
+      for (final s in sessions)
+        if (s.running) s.cliEngine,
+    };
+    final newChatTooltip = activeEngine == CliEngine.dsh
+        ? l10n.commonNewChat
+        : (AppLocale.isEnglish ? 'New ${activeEngine.label} chat' : '新建 ${activeEngine.label} 对话');
 
     return Padding(
       padding: EdgeInsets.fromLTRB(12, topInset + topGap, 12, bottomGap),
@@ -64,41 +68,27 @@ class WorkbenchTabBar extends ConsumerWidget {
         height: tabRow,
         child: Row(
           children: [
-            _TabCountBadge(
+            _EngineCountBadge(
               key: const ValueKey('workbench-tab-count'),
-              count: tabCount,
-              tooltip: l10n.shellChatList,
-              tabs: tabs,
-              current: current,
-              byId: byId,
-              untitledLabel: l10n.commonUntitledChat,
-              onSelect: (id) => ref.read(openSessionTabsProvider.notifier).show(id),
+              engines: engines,
+              activeEngine: activeEngine,
+              runningEngines: runningEngines,
+              tooltip: AppLocale.isEnglish ? 'Switch agent' : '切换智能体',
+              onSelect: (engine) => ref.read(activeWorkbenchEngineProvider.notifier).selectEngine(engine),
             ),
             const SizedBox(width: 6),
             Expanded(
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  if (current == null)
-                    _TabChip(
-                      key: const ValueKey('workbench-tab-new'),
-                      label: l10n.commonNewChat,
-                      engine: CliEngine.dsh,
-                      selected: true,
-                      running: false,
-                      onTap: () {},
-                    ),
-                  for (final id in tabs)
-                    _TabChip(
-                      key: ValueKey('workbench-tab-$id'),
-                      closeKey: ValueKey('workbench-tab-close-$id'),
-                      runningKey: ValueKey('workbench-tab-running-$id'),
-                      label: byId[id] == null ? l10n.commonUntitledChat : sessionTitle(byId[id]!),
-                      engine: byId[id]?.cliEngine ?? CliSessionRef.parse(id)?.engine ?? CliEngine.dsh,
-                      selected: id == current,
-                      running: byId[id]?.running ?? false,
-                      onTap: () => ref.read(openSessionTabsProvider.notifier).show(id),
-                      onClose: () => ref.read(openSessionTabsProvider.notifier).close(id),
+                  for (final engine in engines)
+                    _EngineTabChip(
+                      key: ValueKey('workbench-engine-tab-${engine.wire}'),
+                      runningKey: ValueKey('workbench-engine-running-${engine.wire}'),
+                      engine: engine,
+                      selected: engine == activeEngine,
+                      running: runningEngines.contains(engine),
+                      onTap: () => ref.read(activeWorkbenchEngineProvider.notifier).selectEngine(engine),
                     ),
                 ],
               ),
@@ -107,8 +97,8 @@ class WorkbenchTabBar extends ConsumerWidget {
             _IconKey(
               key: const ValueKey('workbench-new-chat'),
               icon: AppIcons.add,
-              tooltip: l10n.commonNewChat,
-              onPressed: () => ref.read(openSessionTabsProvider.notifier).newChat(),
+              tooltip: newChatTooltip,
+              onPressed: () => ref.read(activeWorkbenchEngineProvider.notifier).newChat(),
             ),
           ],
         ),
@@ -154,25 +144,21 @@ abstract final class WorkbenchChrome {
   static double extentOf(BuildContext context) => WorkbenchTabBar.heightOf(context) + WorkbenchModeBar.extent;
 }
 
-class _TabCountBadge extends StatelessWidget {
-  const _TabCountBadge({
+class _EngineCountBadge extends StatelessWidget {
+  const _EngineCountBadge({
     super.key,
-    required this.count,
+    required this.engines,
+    required this.activeEngine,
+    required this.runningEngines,
     required this.tooltip,
-    required this.tabs,
-    required this.current,
-    required this.byId,
-    required this.untitledLabel,
     required this.onSelect,
   });
 
-  final int count;
+  final List<CliEngine> engines;
+  final CliEngine activeEngine;
+  final Set<CliEngine> runningEngines;
   final String tooltip;
-  final List<String> tabs;
-  final String? current;
-  final Map<String, SessionSummary> byId;
-  final String untitledLabel;
-  final ValueChanged<String> onSelect;
+  final ValueChanged<CliEngine> onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -188,39 +174,36 @@ class _TabCountBadge extends StatelessWidget {
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
       ),
       child: Text(
-        '$count',
+        '${engines.length}',
         style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurface),
       ),
     );
-    if (tabs.isEmpty) {
-      return Tooltip(message: tooltip, child: badge);
-    }
-    return PopupMenuButton<String>(
+    return PopupMenuButton<CliEngine>(
       tooltip: tooltip,
       padding: EdgeInsets.zero,
       onSelected: onSelect,
       itemBuilder: (context) => [
-        for (final id in tabs)
-          PopupMenuItem<String>(
-            key: ValueKey('workbench-tab-menu-$id'),
-            value: id,
+        for (final engine in engines)
+          PopupMenuItem<CliEngine>(
+            key: ValueKey('workbench-engine-menu-${engine.wire}'),
+            value: engine,
             child: Row(
               children: [
                 CliEngineIcon(
-                  engine: byId[id]?.cliEngine ?? CliSessionRef.parse(id)?.engine ?? CliEngine.dsh,
+                  engine: engine,
                   size: 15,
-                  dshColor: id == current ? scheme.primary : scheme.onSurfaceVariant,
+                  dshColor: engine == activeEngine ? scheme.primary : scheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    byId[id] == null ? untitledLabel : sessionTitle(byId[id]!),
+                    engine.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: id == current ? FontWeight.w600 : FontWeight.w400),
+                    style: TextStyle(fontWeight: engine == activeEngine ? FontWeight.w600 : FontWeight.w400),
                   ),
                 ),
-                if (byId[id]?.running ?? false) ...[
+                if (runningEngines.contains(engine)) ...[
                   const SizedBox(width: 8),
                   const StatusDot(tone: StatusTone.busy, size: 6),
                 ],
@@ -233,36 +216,28 @@ class _TabCountBadge extends StatelessWidget {
   }
 }
 
-class _TabChip extends StatelessWidget {
-  const _TabChip({
+class _EngineTabChip extends StatelessWidget {
+  const _EngineTabChip({
     super.key,
-    required this.label,
     required this.engine,
     required this.selected,
     required this.running,
     required this.onTap,
-    this.onClose,
-    this.closeKey,
     this.runningKey,
   });
 
-  final String label;
   final CliEngine engine;
   final bool selected;
   final bool running;
   final VoidCallback onTap;
-  final VoidCallback? onClose;
-  final Key? closeKey;
   final Key? runningKey;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     final scheme = Theme.of(context).colorScheme;
     final dsh = DshColors.of(context);
     final background = selected ? scheme.surface : scheme.surface.withValues(alpha: 0.55);
     final foreground = selected ? scheme.onSurface : scheme.onSurfaceVariant;
-    final showClose = onClose != null && (selected || !running);
     return Padding(
       padding: const EdgeInsets.only(right: 6, top: 2, bottom: 2),
       child: Material(
@@ -274,21 +249,21 @@ class _TabChip extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
+            constraints: const BoxConstraints(maxWidth: 180),
             child: Padding(
-              padding: EdgeInsets.only(left: 10, right: showClose ? 2 : 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CliEngineIcon(
                     engine: engine,
-                    size: 14,
+                    size: 15,
                     dshColor: selected ? scheme.primary : dsh.textTertiary,
                   ),
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      label,
+                      engine.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(color: foreground, fontSize: 13),
@@ -298,16 +273,6 @@ class _TabChip extends StatelessWidget {
                     const SizedBox(width: 6),
                     StatusDot(key: runningKey, tone: StatusTone.busy, size: 6),
                   ],
-                  if (showClose)
-                    IconButton(
-                      key: closeKey,
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-                      tooltip: l10n.shellWorkbenchCloseTab,
-                      onPressed: onClose,
-                      icon: Icon(AppIcons.close, size: 14, color: foreground),
-                    ),
                 ],
               ),
             ),

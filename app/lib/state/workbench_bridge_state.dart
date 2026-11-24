@@ -165,6 +165,21 @@ final workbenchBridgeSessionsProvider =
       WorkbenchBridgeSessionsController.new,
     );
 
+/// 探测宿主机上已安装的外部 CLI 智能体健康状态。
+final workbenchBridgeHealthProvider = FutureProvider<WorkbenchBridgeHealth?>((ref) async {
+  final client = ref.watch(activeConnectionProvider.select((c) => c.value?.client));
+  if (client == null) return null;
+  try {
+    return await client.readWorkbenchBridgeHealth();
+  } on WorkbenchBridgeUnavailableException {
+    return null;
+  } on DshRemoteException {
+    return null;
+  } catch (_) {
+    return null;
+  }
+});
+
 /// 拉取指定外部 CLI 智能体自身支持的模型目录（与 DSH 原生模型目录彻底隔离）。
 final workbenchBridgeModelsProvider = FutureProvider.family<ModelCatalog?, CliEngine>((ref, engine) async {
   if (engine == CliEngine.dsh) return null;

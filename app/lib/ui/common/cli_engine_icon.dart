@@ -49,7 +49,7 @@ class CliEngineIcon extends StatelessWidget {
   }
 }
 
-/// Antigravity 蓝紫青渐变的几何「A」形翼标。
+/// Antigravity（Gemini 官方四角星）：蓝紫青渐变流体四角星。
 class _AntigravityPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -60,17 +60,21 @@ class _AntigravityPainter extends CustomPainter {
       ..shader = const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFF34A853), Color(0xFF4285F4), Color(0xFF7C3AED)],
+        colors: [
+          Color(0xFF1C7EFF),
+          Color(0xFF4285F4),
+          Color(0xFF8B5CF6),
+          Color(0xFFC084FC),
+        ],
       ).createShader(rect)
       ..style = PaintingStyle.fill;
 
     final path = Path()
-      ..moveTo(w * 0.50, h * 0.10)
-      ..cubicTo(w * 0.62, h * 0.10, w * 0.78, h * 0.56, w * 0.88, h * 0.86)
-      ..cubicTo(w * 0.82, h * 0.90, w * 0.72, h * 0.86, w * 0.64, h * 0.72)
-      ..cubicTo(w * 0.56, h * 0.58, w * 0.44, h * 0.58, w * 0.36, h * 0.72)
-      ..cubicTo(w * 0.28, h * 0.86, w * 0.18, h * 0.90, w * 0.12, h * 0.86)
-      ..cubicTo(w * 0.22, h * 0.56, w * 0.38, h * 0.10, w * 0.50, h * 0.10)
+      ..moveTo(w * 0.50, h * 0.04)
+      ..cubicTo(w * 0.50, h * 0.36, w * 0.64, h * 0.50, w * 0.96, h * 0.50)
+      ..cubicTo(w * 0.64, h * 0.50, w * 0.50, h * 0.64, w * 0.50, h * 0.96)
+      ..cubicTo(w * 0.50, h * 0.64, w * 0.36, h * 0.50, w * 0.04, h * 0.50)
+      ..cubicTo(w * 0.36, h * 0.50, w * 0.50, h * 0.36, w * 0.50, h * 0.04)
       ..close();
     canvas.drawPath(path, paint);
   }
