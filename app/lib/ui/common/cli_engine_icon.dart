@@ -49,33 +49,43 @@ class CliEngineIcon extends StatelessWidget {
   }
 }
 
-/// Antigravity（Gemini 官方四角星）：蓝紫青渐变流体四角星。
+/// Antigravity（Google Gemini 官方四角星 Logo）：精确四分之一圆弧内切轮廓 + 官方四色渐变。
 class _AntigravityPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
+    final r = math.min(w, h) * 0.46;
+    const k = 0.55228475;
+    final c = r * k;
+    final cx = w / 2;
+    final cy = h / 2;
+
+    final path = Path()
+      ..moveTo(cx, cy - r)
+      ..cubicTo(cx, cy - r + c, cx + r - c, cy, cx + r, cy)
+      ..cubicTo(cx + r - c, cy, cx, cy + r - c, cx, cy + r)
+      ..cubicTo(cx, cy + r - c, cx - r + c, cy, cx - r, cy)
+      ..cubicTo(cx - r + c, cy, cx, cy - r + c, cx, cy - r)
+      ..close();
+
     final rect = Offset.zero & size;
     final paint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
+      ..shader = const SweepGradient(
+        center: Alignment.center,
+        startAngle: -math.pi * 0.5,
+        endAngle: math.pi * 1.5,
         colors: [
-          Color(0xFF1C7EFF),
-          Color(0xFF4285F4),
-          Color(0xFF8B5CF6),
-          Color(0xFFC084FC),
+          Color(0xFFEA4335), // 上红
+          Color(0xFFFBBC04), // 右黄
+          Color(0xFF34A853), // 下绿
+          Color(0xFF4285F4), // 左蓝
+          Color(0xFFEA4335), // 闭合回上红
         ],
+        stops: [0.0, 0.25, 0.5, 0.75, 1.0],
       ).createShader(rect)
       ..style = PaintingStyle.fill;
 
-    final path = Path()
-      ..moveTo(w * 0.50, h * 0.04)
-      ..cubicTo(w * 0.50, h * 0.36, w * 0.64, h * 0.50, w * 0.96, h * 0.50)
-      ..cubicTo(w * 0.64, h * 0.50, w * 0.50, h * 0.64, w * 0.50, h * 0.96)
-      ..cubicTo(w * 0.50, h * 0.64, w * 0.36, h * 0.50, w * 0.04, h * 0.50)
-      ..cubicTo(w * 0.36, h * 0.50, w * 0.50, h * 0.36, w * 0.50, h * 0.04)
-      ..close();
     canvas.drawPath(path, paint);
   }
 

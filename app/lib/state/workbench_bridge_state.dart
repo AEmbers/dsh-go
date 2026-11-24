@@ -120,7 +120,8 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
 
   void _schedulePoll(DshClient client, int gen) {
     _pollTimer?.cancel();
-    _pollTimer = Timer(const Duration(seconds: 6), () {
+    final delay = state.any((s) => s.running) ? const Duration(seconds: 2) : const Duration(seconds: 4);
+    _pollTimer = Timer(delay, () {
       if (ref.mounted && identical(client, _owner) && gen == _generation) {
         unawaited(_fetch(client, gen));
       }
@@ -142,7 +143,7 @@ class WorkbenchBridgeSessionsController extends Notifier<List<SessionSummary>> {
         _etag = result.etag;
         state = [for (final s in result.sessions) s.toSessionSummary()];
       }
-      if (state.any((s) => s.running)) _schedulePoll(client, gen);
+      _schedulePoll(client, gen);
     } on WorkbenchBridgeUnavailableException {
       if (!ref.mounted || !identical(client, _owner) || gen != _generation) return;
       state = const [];

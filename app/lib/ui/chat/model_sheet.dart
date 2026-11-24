@@ -57,6 +57,7 @@ String effortLabel(String id, [String? fallback]) => switch (id) {
   'high' => appL10n.viewModelThinkingHigh,
   'xhigh' => appL10n.viewModelThinkingXhigh,
   'max' => appL10n.viewModelThinkingMax,
+  'ultra' => AppLocale.isEnglish ? 'Ultra' : '极限',
   _ => fallback ?? id,
 };
 

@@ -254,7 +254,7 @@ export function createWorkbenchRoutes(ctx, options = {}) {
           : null,
       model: overlay?.model || read.model || null,
       cwd: overlay?.cwd || read.cwd || null,
-      running: Boolean(overlay?.running),
+      running: Boolean(overlay?.running || read.running),
       messages: boundMessagesBySize(messages),
     };
   }

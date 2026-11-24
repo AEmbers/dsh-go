@@ -485,8 +485,9 @@ test('Antigravity model catalog parser, stream-json parser, and chunked upload w
   assert.equal(catalog.groups.length, 3);
   assert.equal(catalog.groups[0].id, 'gemini');
   assert.equal(catalog.groups[0].models[0].id, 'gemini-4-neon');
+  assert.equal(catalog.default.model, 'gemini-4-neon');
   assert.deepEqual(
-    catalog.groups[0].models[0].efforts.map((e) => e.id),
+    catalog.groups[0].models[0].reasoning.efforts.map((e) => e.id),
     ['medium', 'high'],
   );
 

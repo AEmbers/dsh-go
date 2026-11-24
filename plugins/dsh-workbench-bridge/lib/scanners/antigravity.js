@@ -169,14 +169,61 @@ export function scanAntigravitySessions(options = {}) {
 }
 
 /**
+ * 检查指定 Antigravity 会话当前是否在桌面端或本地进程中活跃运行。
+ *
+ * @param {string} rootDir
+ * @param {string} rawId
+ * @param {string} logPath
+ * @param {Array<object>} rows
+ * @returns {boolean}
+ */
+function isAntigravityRunning(rootDir, rawId, logPath, rows) {
+  const dbPath = path.join(rootDir, 'conversation_summaries.db');
+  if (fs.existsSync(dbPath)) {
+    let db;
+    try {
+      db = new DatabaseSync(dbPath, { readOnly: true });
+      const row = db
+        .prepare('SELECT not_fully_idle, killed FROM conversation_summaries WHERE conversation_id = ? LIMIT 1')
+        .get(rawId);
+      if (row) {
+        return Boolean(row.not_fully_idle) && !row.killed;
+      }
+    } catch {
+      // 忽略 SQLite 锁/异常并回退文件时间判定
+    } finally {
+      try {
+        db?.close();
+      } catch {
+        // ignore
+      }
+    }
+  }
+  try {
+    if (fs.existsSync(logPath)) {
+      const stat = fs.statSync(logPath);
+      if (Date.now() - stat.mtimeMs < 12_000 && rows.length > 0) {
+        const last = rows[rows.length - 1];
+        if (last?.type === 'USER_INPUT' || (typeof last?.status === 'string' && last.status !== 'DONE')) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+/**
  * 读取指定 Antigravity 会话的标准化消息列表。
  *
  * @param {string} rawId
  * @param {{ rootDir?: string }} [options]
- * @returns {{ messages: Array<object>, model: string | null }}
+ * @returns {{ messages: Array<object>, model: string | null, running: boolean }}
  */
 export function readAntigravityMessages(rawId, options = {}) {
-  if (!isSafeSessionId(rawId)) return { messages: [], model: null };
+  if (!isSafeSessionId(rawId)) return { messages: [], model: null, running: false };
   const rootDir = options.rootDir || path.join(os.homedir(), '.gemini', 'antigravity');
   const logPath = path.join(rootDir, 'brain', rawId, '.system_generated', 'logs', 'transcript.jsonl');
   const rows = readJsonlSafe(logPath);
@@ -234,5 +281,6 @@ export function readAntigravityMessages(rawId, options = {}) {
     }
   }
 
-  return { messages, model: latestModel };
+  const running = isAntigravityRunning(rootDir, rawId, logPath, rows);
+  return { messages, model: latestModel, running };
 }

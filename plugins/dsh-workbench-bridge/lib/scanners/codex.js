@@ -125,7 +125,15 @@ export function readCodexMessages(rawId, options = {}) {
   const rootDir = options.rootDir || path.join(os.homedir(), '.codex');
   const rolloutMap = buildRolloutMap(rootDir);
   const filePath = rolloutMap.get(rawId);
-  if (!filePath) return { messages: [], model: null, cwd: null };
+  if (!filePath) return { messages: [], model: null, cwd: null, running: false };
+
+  let running = false;
+  try {
+    const stat = fs.statSync(filePath);
+    running = Date.now() - stat.mtimeMs < 12_000;
+  } catch {
+    // ignore
+  }
 
   const rows = readJsonlSafe(filePath);
   const messages = [];
@@ -210,5 +218,5 @@ export function readCodexMessages(rawId, options = {}) {
     }
   }
 
-  return { messages, model, cwd };
+  return { messages, model, cwd, running };
 }

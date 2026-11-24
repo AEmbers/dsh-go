@@ -205,7 +205,7 @@ void main() {
         'workbench.bridge.models' => {
           'ok': true,
           'engine': params['engine'],
-          'defaultSelection': {'provider': 'gemini', 'model': 'gemini-4-neon', 'reasoningEffort': 'high'},
+          'default': {'provider': 'gemini', 'model': 'gemini-4-neon', 'reasoningEffort': 'high'},
           'routableProviders': ['gemini'],
           'groups': [
             {
@@ -215,11 +215,13 @@ void main() {
                 {
                   'id': 'gemini-4-neon',
                   'name': 'Gemini 4 Neon',
-                  'efforts': [
-                    {'id': 'medium', 'name': 'Medium'},
-                    {'id': 'high', 'name': 'High'},
-                  ],
-                  'defaultEffort': 'high',
+                  'reasoning': {
+                    'efforts': [
+                      {'id': 'medium', 'name': 'Medium'},
+                      {'id': 'high', 'name': 'High'},
+                    ],
+                    'defaultEffort': 'high',
+                  },
                 },
               ],
             },
@@ -256,6 +258,8 @@ void main() {
     final models = await client.readWorkbenchBridgeModels(CliEngine.antigravity);
     expect(models.groups.single.id, 'gemini');
     expect(models.groups.single.models.single.id, 'gemini-4-neon');
+    expect(models.groups.single.models.single.efforts.map((e) => e.id), ['medium', 'high']);
+    expect(models.defaultSelection?.reasoningEffort, 'high');
 
     final bigBytes = Uint8List.fromList(List<int>.filled(250 * 1024, 7));
     final uploaded = await client.uploadWorkbenchBridgeAttachment(

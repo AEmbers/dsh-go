@@ -19,6 +19,7 @@ const EFFORT_META = {
   high: { id: 'high', name: 'High' },
   xhigh: { id: 'xhigh', name: 'XHigh' },
   max: { id: 'max', name: 'Max' },
+  ultra: { id: 'ultra', name: 'Ultra' },
 };
 
 const ANTIGRAVITY_FALLBACK_LINES = [
@@ -153,8 +154,10 @@ export function parseAntigravityModelsOutput(stdout, failures = []) {
       provider: entry.group.id,
       id: entry.id,
       name: entry.name,
-      efforts,
-      ...(defaultEffort ? { defaultEffort } : {}),
+      reasoning: {
+        efforts,
+        ...(defaultEffort ? { defaultEffort } : {}),
+      },
     });
   }
 
@@ -164,17 +167,19 @@ export function parseAntigravityModelsOutput(stdout, failures = []) {
     .filter((g) => g && g.models.length > 0);
 
   const firstModel = groups[0]?.models[0] ?? null;
+  const firstDefaultEffort = firstModel?.reasoning?.defaultEffort;
   const defaultSelection = firstModel
     ? {
         provider: firstModel.provider,
         model: firstModel.id,
-        ...(firstModel.defaultEffort ? { reasoningEffort: firstModel.defaultEffort } : {}),
+        ...(firstDefaultEffort ? { reasoningEffort: firstDefaultEffort } : {}),
       }
     : null;
 
   return {
     ok: true,
     engine: 'antigravity',
+    default: defaultSelection,
     defaultSelection,
     routableProviders: groups.map((g) => g.id),
     groups,
@@ -227,28 +232,103 @@ function readCodexDefaults(roots = {}) {
 }
 
 function buildCodexCatalog(options = {}) {
+  const codexRoot = options.roots?.codexRoot || path.join(os.homedir(), '.codex');
   const { configuredModel, configuredEffort } = readCodexDefaults(options.roots);
-  const efforts = ['low', 'medium', 'high', 'xhigh'].map((id) => ({ id, name: EFFORT_META[id].name }));
-  const baseIds = ['gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex', 'o3'];
-  if (configuredModel && !baseIds.includes(configuredModel)) {
-    baseIds.unshift(configuredModel);
-  }
-  const models = baseIds.map((id) => ({
-    provider: 'codex',
+  const fallbackEfforts = ['low', 'medium', 'high', 'xhigh'].map((id) => ({
     id,
-    name: id,
-    efforts,
-    defaultEffort: configuredEffort || 'medium',
+    name: EFFORT_META[id].name,
   }));
-  const defaultModel = configuredModel || models[0].id;
+
+  let models = [];
+  for (const fileName of ['models_cache.json', 'models_cache.codex_work_desktop.json']) {
+    const cachePath = path.join(codexRoot, fileName);
+    if (!fs.existsSync(cachePath)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      const rawModels = Array.isArray(parsed?.models) ? parsed.models : [];
+      const mapped = [];
+      for (const m of rawModels) {
+        if (!m || typeof m !== 'object' || typeof m.slug !== 'string' || !m.slug.trim()) continue;
+        const slug = m.slug.trim();
+        if (m.visibility === 'hide' && slug !== configuredModel) continue;
+        const levels = Array.isArray(m.supported_reasoning_levels) ? m.supported_reasoning_levels : [];
+        const efforts = levels.length > 0
+          ? levels
+              .filter((lvl) => lvl && typeof lvl.effort === 'string' && lvl.effort.trim())
+              .map((lvl) => {
+                const id = lvl.effort.trim().toLowerCase();
+                return {
+                  id,
+                  name: EFFORT_META[id]?.name || id,
+                  ...(typeof lvl.description === 'string' && lvl.description.trim()
+                    ? { description: lvl.description.trim() }
+                    : {}),
+                };
+              })
+          : fallbackEfforts;
+        const defEffort = typeof m.default_reasoning_level === 'string' && m.default_reasoning_level.trim()
+          ? m.default_reasoning_level.trim().toLowerCase()
+          : efforts[0]?.id;
+        mapped.push({
+          provider: 'codex',
+          id: slug,
+          name: typeof m.display_name === 'string' && m.display_name.trim() ? m.display_name.trim() : slug,
+          ...(typeof m.description === 'string' && m.description.trim() ? { description: m.description.trim() } : {}),
+          reasoning: {
+            efforts,
+            ...(defEffort ? { defaultEffort: defEffort } : {}),
+          },
+        });
+      }
+      if (mapped.length > 0) {
+        models = mapped;
+        break;
+      }
+    } catch {
+      // 忽略损坏的缓存文件并尝试回退
+    }
+  }
+
+  if (models.length === 0) {
+    const baseIds = ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-terra', 'gpt-6.1-sol'];
+    models = baseIds.map((id) => ({
+      provider: 'codex',
+      id,
+      name: id,
+      reasoning: {
+        efforts: fallbackEfforts,
+        defaultEffort: configuredEffort || 'medium',
+      },
+    }));
+  }
+
+  if (configuredModel && !models.some((m) => m.id === configuredModel)) {
+    models.unshift({
+      provider: 'codex',
+      id: configuredModel,
+      name: configuredModel,
+      reasoning: {
+        efforts: fallbackEfforts,
+        defaultEffort: configuredEffort || 'medium',
+      },
+    });
+  }
+
+  const defaultEntry = (configuredModel ? models.find((m) => m.id === configuredModel) : null) || models[0];
+  const defaultEffort = configuredEffort && defaultEntry.reasoning.efforts.some((e) => e.id === configuredEffort)
+    ? configuredEffort
+    : defaultEntry.reasoning.defaultEffort;
+  const defaultSelection = {
+    provider: 'codex',
+    model: defaultEntry.id,
+    ...(defaultEffort ? { reasoningEffort: defaultEffort } : {}),
+  };
+
   return {
     ok: true,
     engine: 'codex',
-    defaultSelection: {
-      provider: 'codex',
-      model: defaultModel,
-      reasoningEffort: configuredEffort || 'medium',
-    },
+    default: defaultSelection,
+    defaultSelection,
     routableProviders: ['codex'],
     groups: [{ id: 'codex', name: 'Codex', models }],
     failures: [],
@@ -273,11 +353,18 @@ function buildClaudeCatalog(options = {}) {
   if (configuredModel && !baseIds.includes(configuredModel)) {
     baseIds.unshift(configuredModel);
   }
-  const models = baseIds.map((id) => ({ provider: 'claude', id, name: id, efforts: [] }));
+  const models = baseIds.map((id) => ({
+    provider: 'claude',
+    id,
+    name: id,
+    reasoning: { efforts: [] },
+  }));
+  const defaultSelection = { provider: 'claude', model: configuredModel || models[0].id };
   return {
     ok: true,
     engine: 'claude',
-    defaultSelection: { provider: 'claude', model: configuredModel || models[0].id },
+    default: defaultSelection,
+    defaultSelection,
     routableProviders: ['claude'],
     groups: [{ id: 'claude', name: 'Claude Code', models }],
     failures: [],

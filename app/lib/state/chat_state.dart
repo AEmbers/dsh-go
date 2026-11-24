@@ -765,13 +765,25 @@ class ChatController extends Notifier<ChatState> {
     return false;
   }
 
+  String _cliSnapshotSignature(List<ChatItem> items, bool running, ModelSelection? model) {
+    final last = items.isEmpty ? null : items.last;
+    final tail = switch (last) {
+      UserChatItem(:final text, :final files) => 'u:${text.length}:${files.length}',
+      AssistantChatItem(:final text, :final reasoning, :final streaming) =>
+        'a:${text.length}:${reasoning.length}:$streaming',
+      ToolChatItem(:final callId, :final status) => 't:$callId:${status.name}',
+      _ => 'none',
+    };
+    return '${items.length}|$running|${model?.provider}:${model?.model}:${model?.reasoningEffort}|$tail';
+  }
+
   Future<bool> _syncCliSession(DshClient client, CliSessionRef cliRef) async {
     _cliPollTimer?.cancel();
     _cliPollTimer = null;
     try {
       final snap = await client.readWorkbenchBridgeMessages(cliRef.engine, cliRef.rawId);
       if (!ref.mounted || !identical(client, _client)) return false;
-      _cliItems = cliSnapshotToChatItems(snap);
+      final nextItems = cliSnapshotToChatItems(snap);
       _cliCwd = snap.cwd ?? _cliCwd;
       _cliRunning = snap.running;
       if (!_cliModelPinned) {
@@ -780,29 +792,37 @@ class ChatController extends Notifier<ChatState> {
           _cliModel = resolveCliModelSelection(catalog, modelName, cliRef.engine);
         }
       }
-      state = ChatState(
-        items: _cliItems,
-        running: _cliRunning,
-        loading: false,
-        resyncing: false,
-        connection: client.mux.state,
-        model: _cliModel,
-      );
-      if (_cliRunning) {
-        _cliPollTimer = Timer(const Duration(milliseconds: 900), () {
-          if (ref.mounted && identical(client, _client)) {
-            unawaited(_syncCliSession(client, cliRef));
+      final prevSig = _cliSnapshotSignature(_cliItems, state.running, state.model);
+      final nextSig = _cliSnapshotSignature(nextItems, _cliRunning, _cliModel);
+      _cliItems = nextItems;
+      if (prevSig != nextSig || state.loading || state.resyncing || state.error != null) {
+        state = ChatState(
+          items: _cliItems,
+          running: _cliRunning,
+          loading: false,
+          resyncing: false,
+          connection: client.mux.state,
+          model: _cliModel,
+        );
+      }
+      if (!_cliRunning) {
+        if (snap.resolvedSessionId case final resolved? when resolved != sessionId) {
+          unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+          if (ref.read(currentSessionProvider) == sessionId) {
+            if (_cliModel case final pinned?) {
+              unawaited(ref.read(chatProvider(resolved).notifier).setModel(pinned));
+            }
+            ref.read(currentSessionProvider.notifier).select(resolved);
+            return true;
           }
-        });
-      } else if (snap.resolvedSessionId case final resolved? when resolved != sessionId) {
-        unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
-        if (ref.read(currentSessionProvider) == sessionId) {
-          if (_cliModel case final pinned?) {
-            unawaited(ref.read(chatProvider(resolved).notifier).setModel(pinned));
-          }
-          ref.read(currentSessionProvider.notifier).select(resolved);
         }
       }
+      final delay = _cliRunning ? const Duration(milliseconds: 900) : const Duration(milliseconds: 2500);
+      _cliPollTimer = Timer(delay, () {
+        if (ref.mounted && identical(client, _client)) {
+          unawaited(_syncCliSession(client, cliRef));
+        }
+      });
       return true;
     } catch (error) {
       if (!ref.mounted || !identical(client, _client)) return false;
@@ -815,6 +835,11 @@ class ChatController extends Notifier<ChatState> {
         connection: client.mux.state,
         model: _cliModel,
       );
+      _cliPollTimer = Timer(const Duration(seconds: 4), () {
+        if (ref.mounted && identical(client, _client)) {
+          unawaited(_syncCliSession(client, cliRef));
+        }
+      });
       return false;
     }
   }
