@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
+import { parseAntigravityModelsOutput } from '../lib/models.js';
 import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
 import { readCliSessionMessages, scanAllCliSessions } from '../lib/scanners/index.js';
 
@@ -211,13 +212,32 @@ test('CliRunManager builds commands, streams output overlay, and supports abort'
   t.after(() => fs.rmSync(fx.root, { recursive: true, force: true }));
 
   assert.deepEqual(buildCliCommand('antigravity', { rawSessionId: 'abc', prompt: 'hi' }).args, [
-    '--print',
     '--output-format',
     'stream-json',
     '--conversation',
     'abc',
-    'hi',
+    '--print=hi',
   ]);
+  assert.deepEqual(
+    buildCliCommand('antigravity', {
+      rawSessionId: 'abc',
+      prompt: 'hi',
+      model: 'gemini-4-neon',
+      reasoningEffort: 'high',
+      addDirs: ['C:\\tmp\\up1'],
+    }).args,
+    [
+      '--output-format',
+      'stream-json',
+      '--conversation',
+      'abc',
+      '--model',
+      'gemini-4-neon-high',
+      '--add-dir',
+      'C:\\tmp\\up1',
+      '--print=hi',
+    ],
+  );
   assert.deepEqual(buildCliCommand('codex', { rawSessionId: 'abc', prompt: 'hi' }).args, [
     'exec',
     '--json',
@@ -449,4 +469,92 @@ test('attachRemoteRpcBridge handles workbench.bridge.* calls and restores origin
   detach();
   const afterDetach = await router.invoke('workbench.bridge.health', {});
   assert.deepEqual(afterDetach, { passthrough: 'workbench.bridge.health', params: {} });
+});
+
+test('Antigravity model catalog parser, stream-json parser, and chunked upload work end-to-end', async (t) => {
+  const uploadRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-wb-up-'));
+  t.after(() => fs.rmSync(uploadRoot, { recursive: true, force: true }));
+
+  const catalog = parseAntigravityModelsOutput([
+    'Fetching available models...',
+    'gemini-4-neon-high\tGemini 4 Neon (High)',
+    'gemini-4-neon-medium\tGemini 4 Neon (Medium)',
+    'gemini-pro-orchestrator-neon\tOrchestrator (Neon)',
+    'claude-opus-5-5-low\tClaude Opus 5.5 (Low)',
+  ].join('\n'));
+  assert.equal(catalog.groups.length, 3);
+  assert.equal(catalog.groups[0].id, 'gemini');
+  assert.equal(catalog.groups[0].models[0].id, 'gemini-4-neon');
+  assert.deepEqual(
+    catalog.groups[0].models[0].efforts.map((e) => e.id),
+    ['medium', 'high'],
+  );
+
+  const step = parseCliStreamLine(JSON.stringify({
+    event: 'step_update',
+    step_update: { conversation_id: 'c1', text_delta: 'OK' },
+  }));
+  assert.equal(step.sessionId, 'c1');
+  assert.equal(step.textDelta, 'OK');
+
+  const resLine = parseCliStreamLine(JSON.stringify({
+    event: 'result',
+    result: { conversation_id: 'c1', response: 'OK\n' },
+  }));
+  assert.equal(resLine.finalText, 'OK\n');
+
+  let capturedArgs = [];
+  const manager = new CliRunManager({
+    uploadRoot,
+    resolveBinFn: () => 'fake-agy',
+    spawnFn: (_exe, args) => {
+      capturedArgs = args;
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      setTimeout(() => {
+        child.stdout.emit('data', Buffer.from('{"event":"step_update","step_update":{"conversation_id":"c1","text_delta":"Seen"}}\n'));
+        child.stdout.emit('data', Buffer.from('{"event":"result","result":{"conversation_id":"c1","response":"Seen"}}\n'));
+        child.emit('close', 0);
+      }, 5);
+      return child;
+    },
+  });
+
+  const c1 = manager.saveUploadChunk({
+    name: '../pic.png',
+    mediaType: 'image/png',
+    offset: 0,
+    chunkBase64: Buffer.from('hello ').toString('base64'),
+    done: false,
+  });
+  const c2 = manager.saveUploadChunk({
+    uploadId: c1.uploadId,
+    offset: c1.bytes,
+    chunkBase64: Buffer.from('world').toString('base64'),
+    done: true,
+  });
+  assert.equal(c2.done, true);
+  assert.equal(c2.bytes, 11);
+  assert.equal(c2.name, 'pic.png');
+
+  const run = manager.startRun({
+    engine: 'antigravity',
+    rawSessionId: 'c1',
+    prompt: '',
+    model: 'gemini-4-neon',
+    reasoningEffort: 'high',
+    attachmentIds: [c1.uploadId],
+  });
+  assert.equal(run.running, true);
+  assert.ok(capturedArgs.includes('--add-dir'));
+  assert.ok(capturedArgs.includes('gemini-4-neon-high'));
+  assert.ok(capturedArgs.at(-1).startsWith('--print='));
+  assert.ok(capturedArgs.at(-1).includes('pic.png'));
+
+  await new Promise((r) => setTimeout(r, 40));
+  const overlay = manager.getOverlay('antigravity', 'c1');
+  assert.equal(overlay.assistantText, 'Seen');
+  assert.equal(overlay.prompt, '[附件: pic.png]');
 });

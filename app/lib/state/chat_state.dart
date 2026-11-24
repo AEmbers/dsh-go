@@ -475,6 +475,7 @@ class ChatController extends Notifier<ChatState> {
   Timer? _cliPollTimer;
   List<ChatItem> _cliItems = const [];
   ModelSelection? _cliModel;
+  bool _cliModelPinned = false;
   String? _cliCwd;
   bool _cliRunning = false;
   _ChatOperation? _stoppingOperation;
@@ -773,8 +774,11 @@ class ChatController extends Notifier<ChatState> {
       _cliItems = cliSnapshotToChatItems(snap);
       _cliCwd = snap.cwd ?? _cliCwd;
       _cliRunning = snap.running;
-      if (snap.model case final modelName? when modelName.isNotEmpty) {
-        _cliModel = ModelSelection(provider: cliRef.engine.wire, model: modelName);
+      if (!_cliModelPinned) {
+        if (snap.model case final modelName? when modelName.isNotEmpty) {
+          final catalog = ref.read(workbenchBridgeModelsProvider(cliRef.engine)).value;
+          _cliModel = resolveCliModelSelection(catalog, modelName, cliRef.engine);
+        }
       }
       state = ChatState(
         items: _cliItems,
@@ -807,17 +811,27 @@ class ChatController extends Notifier<ChatState> {
     }
   }
 
-  Future<bool> _sendCliPrompt(DshClient client, CliSessionRef cliRef, String body) async {
+  Future<bool> _sendCliPrompt(
+    DshClient client,
+    CliSessionRef cliRef,
+    String body, {
+    List<DraftAttachment> attachments = const [],
+  }) async {
     final trimmed = body.trim();
-    if (trimmed.isEmpty) return false;
+    if (trimmed.isEmpty && attachments.isEmpty) return false;
+    final displayText = trimmed.isNotEmpty
+        ? trimmed
+        : attachments.map((a) => '[附件: ${a.name}]').join(' ');
     final optimistic = [
       ..._cliItems,
       UserChatItem(
         seq: _cliItems.length + 1,
         time: DateTime.now(),
-        text: trimmed,
+        text: displayText,
         images: const [],
-        files: const [],
+        files: [
+          for (final a in attachments) FileAttachment(name: a.name, bytes: a.bytes.length),
+        ],
       ),
     ];
     _cliItems = optimistic;
@@ -830,12 +844,24 @@ class ChatController extends Notifier<ChatState> {
       model: _cliModel,
     );
     try {
+      final uploadedIds = <String>[];
+      for (final att in attachments) {
+        final uploaded = await client.uploadWorkbenchBridgeAttachment(
+          name: att.name,
+          mediaType: att.mediaType ?? 'application/octet-stream',
+          bytes: att.bytes,
+        );
+        if (!ref.mounted || !identical(client, _client)) return false;
+        uploadedIds.add(uploaded.uploadId);
+      }
       await client.sendWorkbenchBridgePrompt(
         engine: cliRef.engine,
         rawSessionId: cliRef.rawId,
         cwd: _cliCwd,
         prompt: trimmed,
         model: _cliModel?.model,
+        reasoningEffort: _cliModel?.reasoningEffort,
+        attachmentIds: uploadedIds,
       );
       if (!ref.mounted || !identical(client, _client)) return false;
       unawaited(_syncCliSession(client, cliRef));
@@ -1456,7 +1482,7 @@ class ChatController extends Notifier<ChatState> {
     }
     final cliRef = CliSessionRef.parse(sessionId);
     if (cliRef != null) {
-      return _sendCliPrompt(client, cliRef, verbatim ? text : trimmed);
+      return _sendCliPrompt(client, cliRef, verbatim ? text : trimmed, attachments: attachments);
     }
     final body = verbatim ? text : trimmed;
     if (!_canControl && (mode == SendMode.interrupt || !await waitForSync())) return false;
@@ -2158,6 +2184,13 @@ class ChatController extends Notifier<ChatState> {
   Future<bool> setModel(ModelSelection selection) async {
     final owner = ref;
     if (!owner.mounted) return false;
+    final cliRef = CliSessionRef.parse(sessionId);
+    if (cliRef != null) {
+      _cliModel = selection;
+      _cliModelPinned = true;
+      state = state.copyWith(model: selection, error: null);
+      return true;
+    }
     final client = _client;
     if (client == null) return false;
     final generation = client.mux.generation;

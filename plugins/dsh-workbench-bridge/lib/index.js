@@ -8,6 +8,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { makeBridgeGuard } from './guard.js';
+import { listCliEngineModels } from './models.js';
 import { CliRunManager } from './runner.js';
 import { CLI_ENGINES, computeEtag, isSafeSessionId } from './scanners/common.js';
 import { probeCliEngines, readCliSessionMessages, scanAllCliSessions } from './scanners/index.js';
@@ -15,7 +16,7 @@ import { probeCliEngines, readCliSessionMessages, scanAllCliSessions } from './s
 export const name = 'dsh-workbench-bridge';
 export const BASE = '/plugins/dsh-workbench-bridge';
 
-const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_MESSAGES_BYTES = 2 * 1024 * 1024;
 const RPC_BRIDGE_PATCH_KEY = Symbol.for('dsh-workbench-bridge.rpc-patch');
 
@@ -200,11 +201,24 @@ export function createWorkbenchRoutes(ctx, options = {}) {
       const lastUser = [...messages].reverse().find((m) => m.role === 'user');
       const lastUserText = lastUser?.parts?.find((p) => p.type === 'text')?.text?.trim();
       if (lastUserText !== overlay.prompt.trim()) {
+        const userParts = [{ type: 'text', text: overlay.prompt }];
+        if (Array.isArray(overlay.attachments)) {
+          for (const att of overlay.attachments) {
+            userParts.push({
+              type: 'file',
+              attachment: {
+                attachmentId: att.uploadId,
+                name: att.name,
+                bytes: att.bytes,
+              },
+            });
+          }
+        }
         messages.push({
           messageId: `run-user-${overlay.runId}`,
           role: 'user',
           createdAt: overlay.startedAt,
-          parts: [{ type: 'text', text: overlay.prompt }],
+          parts: userParts,
         });
       }
       if (overlay.running || overlay.assistantText || overlay.assistantReasoning || overlay.errorText) {
@@ -241,6 +255,26 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     };
   }
 
+  async function buildModelsPayload(engine, opts = {}) {
+    return listCliEngineModels(String(engine || ''), {
+      refresh: opts.refresh === true,
+      binaries: options.binaries,
+      roots: options.roots,
+    });
+  }
+
+  function runUploadPayload(body) {
+    const safeBody = body && typeof body === 'object' ? body : {};
+    return runner.saveUploadChunk({
+      uploadId: typeof safeBody.uploadId === 'string' ? safeBody.uploadId : null,
+      name: typeof safeBody.name === 'string' ? safeBody.name : 'attachment.bin',
+      mediaType: typeof safeBody.mediaType === 'string' ? safeBody.mediaType : 'application/octet-stream',
+      offset: typeof safeBody.offset === 'number' ? safeBody.offset : 0,
+      chunkBase64: typeof safeBody.chunkBase64 === 'string' ? safeBody.chunkBase64 : '',
+      done: safeBody.done !== false,
+    });
+  }
+
   function runPromptPayload(body) {
     const safeBody = body && typeof body === 'object' ? body : {};
     return runner.startRun({
@@ -249,6 +283,9 @@ export function createWorkbenchRoutes(ctx, options = {}) {
       cwd: typeof safeBody.cwd === 'string' ? safeBody.cwd : null,
       prompt: safeBody.prompt,
       model: typeof safeBody.model === 'string' ? safeBody.model : null,
+      reasoningEffort: typeof safeBody.reasoningEffort === 'string' ? safeBody.reasoningEffort : null,
+      attachmentIds: Array.isArray(safeBody.attachmentIds) ? safeBody.attachmentIds : undefined,
+      attachments: Array.isArray(safeBody.attachments) ? safeBody.attachments : undefined,
     });
   }
 
@@ -325,16 +362,46 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     }
   }
 
+  async function handleModels(req, engine, refresh = false) {
+    const blocked = rejectIfNeeded(req);
+    if (blocked) return blocked;
+    try {
+      return jsonResponse(200, await buildModelsPayload(engine, { refresh }));
+    } catch (err) {
+      return jsonResponse(err.status || 400, { code: err.code || 'invalid_engine', message: err.message });
+    }
+  }
+
+  async function handleUpload(req) {
+    const blocked = rejectIfNeeded(req);
+    if (blocked) return blocked;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      return jsonResponse(err.status || 400, { code: err.code || 'bad_json', message: err.message });
+    }
+    try {
+      return jsonResponse(200, runUploadPayload(body));
+    } catch (err) {
+      return jsonResponse(err.status || 400, { code: err.code || 'upload_failed', message: err.message });
+    }
+  }
+
   return {
     runner,
     buildHealthPayload,
     buildSessionsPayload,
     buildMessagesPayload,
+    buildModelsPayload,
+    runUploadPayload,
     runPromptPayload,
     runAbortPayload,
     handleHealth,
     handleSessions,
     handleMessages,
+    handleModels,
+    handleUpload,
     handlePrompt,
     handleAbort,
   };
@@ -371,6 +438,16 @@ export function createNodePrefixHandler(routes) {
         response = method === 'GET' ? await routes.handleHealth(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
       } else if (pathname === `${BASE}/sessions`) {
         response = method === 'GET' ? await routes.handleSessions(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/models`) {
+        const engine = url.searchParams.get('engine') || '';
+        const refresh = url.searchParams.get('refresh') === '1' || url.searchParams.get('refresh') === 'true';
+        response = method === 'GET' ? await routes.handleModels(req, engine, refresh) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname.startsWith(`${BASE}/models/`)) {
+        const engine = decodeURIComponent(pathname.slice(`${BASE}/models/`.length));
+        const refresh = url.searchParams.get('refresh') === '1' || url.searchParams.get('refresh') === 'true';
+        response = method === 'GET' ? await routes.handleModels(req, engine, refresh) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
+      } else if (pathname === `${BASE}/uploads`) {
+        response = method === 'POST' ? await routes.handleUpload(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
       } else if (pathname === `${BASE}/sessions/prompt`) {
         response = method === 'POST' ? await routes.handlePrompt(req) : jsonResponse(405, { code: 'method_not_allowed', message: 'Method not allowed' });
       } else if (pathname === `${BASE}/sessions/abort`) {
@@ -450,6 +527,10 @@ export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
           }
           case 'workbench.bridge.messages':
             return routes.buildMessagesPayload(String(p.engine || ''), String(p.rawId || ''));
+          case 'workbench.bridge.models':
+            return await routes.buildModelsPayload(String(p.engine || ''), { refresh: p.refresh === true });
+          case 'workbench.bridge.upload':
+            return routes.runUploadPayload(p);
           case 'workbench.bridge.prompt':
             return routes.runPromptPayload(p);
           case 'workbench.bridge.abort':

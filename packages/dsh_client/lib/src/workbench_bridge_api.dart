@@ -19,10 +19,13 @@ import 'session_api.dart';
 
 const workbenchBridgeHealthPath = '/plugins/dsh-workbench-bridge/health';
 const workbenchBridgeSessionsPath = '/plugins/dsh-workbench-bridge/sessions';
+const workbenchBridgeModelsPath = '/plugins/dsh-workbench-bridge/models';
+const workbenchBridgeUploadPath = '/plugins/dsh-workbench-bridge/uploads';
 const workbenchBridgePromptPath = '/plugins/dsh-workbench-bridge/sessions/prompt';
 const workbenchBridgeAbortPath = '/plugins/dsh-workbench-bridge/sessions/abort';
 
 const _maxReplyBytes = 4 * 1024 * 1024;
+const _uploadChunkBytes = 192 * 1024;
 
 /// Supported CLI engines in the unified multi-CLI workbench.
 enum CliEngine {
@@ -275,6 +278,27 @@ class WorkbenchCliPromptResult {
   final bool running;
 }
 
+class WorkbenchBridgeUploadedFile {
+  const WorkbenchBridgeUploadedFile({
+    required this.uploadId,
+    required this.name,
+    required this.mediaType,
+    required this.bytes,
+  });
+
+  factory WorkbenchBridgeUploadedFile.fromJson(Map<String, Object?> json) => WorkbenchBridgeUploadedFile(
+    uploadId: asString(json['uploadId']) ?? '',
+    name: asString(json['name']) ?? 'attachment.bin',
+    mediaType: asString(json['mediaType']) ?? 'application/octet-stream',
+    bytes: asInt(json['bytes']) ?? 0,
+  );
+
+  final String uploadId;
+  final String name;
+  final String mediaType;
+  final int bytes;
+}
+
 final class WorkbenchBridgeUnavailableException extends DshException {
   const WorkbenchBridgeUnavailableException() : super('workbench-bridge is not served by this host');
 }
@@ -405,6 +429,101 @@ extension WorkbenchBridgeApi on DshClient {
     return WorkbenchCliChatSnapshot.fromJson(body);
   }
 
+  /// `GET /plugins/dsh-workbench-bridge/models/:engine` or `workbench.bridge.models` RPC.
+  Future<ModelCatalog> readWorkbenchBridgeModels(
+    CliEngine engine, {
+    bool refresh = false,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    if (engine == CliEngine.dsh) {
+      throw ArgumentError.value(engine, 'engine', 'Use listModels for native DSH models');
+    }
+    if (carrier is! DshHttpCarrier) {
+      final body = await _callRpcBridge(
+        'workbench.bridge.models',
+        {'engine': engine.wire, if (refresh) 'refresh': true},
+        timeout,
+      );
+      return ModelCatalog.fromJson(body);
+    }
+    final query = refresh ? '?refresh=1' : '';
+    final path = '$workbenchBridgeModelsPath/${engine.wire}$query';
+    final connection = _bridgeConnection(path);
+    final response = await _bridgeGet(
+      connection,
+      connection.resolve(path),
+      maxBytes: _maxReplyBytes,
+      timeout: timeout,
+    );
+    if (response.statusCode == 404 || response.statusCode == 405 || response.statusCode == 501 || response.statusCode == 503) {
+      throw const WorkbenchBridgeUnavailableException();
+    }
+    if (response.statusCode != 200) {
+      throw DshHttpException(response.statusCode, '$path: HTTP ${response.statusCode}', body: response.text);
+    }
+    final body = asMap(tryDecodeJson(response.text));
+    if (body == null) throw const DshProtocolException('workbench-bridge models: invalid JSON');
+    return ModelCatalog.fromJson(body);
+  }
+
+  /// Uploads an attachment in bounded chunks (`workbench.bridge.upload` RPC or HTTP POST).
+  Future<WorkbenchBridgeUploadedFile> uploadWorkbenchBridgeAttachment({
+    required String name,
+    required String mediaType,
+    required Uint8List bytes,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    String? uploadId;
+    WorkbenchBridgeUploadedFile? result;
+    var offset = 0;
+    do {
+      final end = offset + _uploadChunkBytes < bytes.length ? offset + _uploadChunkBytes : bytes.length;
+      final slice = bytes.sublist(offset, end);
+      final done = end >= bytes.length;
+      final payload = <String, Object?>{
+        'uploadId': ?uploadId,
+        if (offset == 0) 'name': name,
+        if (offset == 0) 'mediaType': mediaType,
+        'offset': offset,
+        'chunkBase64': base64Encode(slice),
+        'done': done,
+      };
+      Map<String, Object?> body;
+      if (carrier is! DshHttpCarrier) {
+        body = await _callRpcBridge('workbench.bridge.upload', payload, timeout);
+      } else {
+        final response = await _bridgeConnection(workbenchBridgeUploadPath).postBytes(
+          workbenchBridgeUploadPath,
+          utf8.encode(jsonEncode(payload)),
+          contentType: 'application/json',
+          followRedirects: false,
+          maxResponseBytes: _maxReplyBytes,
+          timeout: timeout,
+        );
+        if (response.statusCode == 404 ||
+            response.statusCode == 405 ||
+            response.statusCode == 501 ||
+            response.statusCode == 503) {
+          throw const WorkbenchBridgeUnavailableException();
+        }
+        if (response.statusCode != 200) {
+          throw DshHttpException(
+            response.statusCode,
+            '$workbenchBridgeUploadPath: HTTP ${response.statusCode}',
+            body: response.text,
+          );
+        }
+        final parsed = asMap(tryDecodeJson(response.text));
+        if (parsed == null) throw const DshProtocolException('workbench-bridge upload: invalid JSON');
+        body = parsed;
+      }
+      result = WorkbenchBridgeUploadedFile.fromJson(body);
+      uploadId ??= result.uploadId;
+      offset = end;
+    } while (offset < bytes.length);
+    return result;
+  }
+
   /// `POST /plugins/dsh-workbench-bridge/sessions/prompt` or RPC.
   Future<WorkbenchCliPromptResult> sendWorkbenchBridgePrompt({
     required CliEngine engine,
@@ -412,6 +531,8 @@ extension WorkbenchBridgeApi on DshClient {
     String? cwd,
     required String prompt,
     String? model,
+    String? reasoningEffort,
+    List<String> attachmentIds = const [],
     Duration timeout = const Duration(seconds: 20),
   }) async {
     if (engine == CliEngine.dsh) {
@@ -424,6 +545,8 @@ extension WorkbenchBridgeApi on DshClient {
       if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
       'prompt': prompt,
       if (model != null && model.isNotEmpty) 'model': model,
+      if (reasoningEffort != null && reasoningEffort.isNotEmpty) 'reasoningEffort': reasoningEffort,
+      if (attachmentIds.isNotEmpty) 'attachmentIds': attachmentIds,
     };
     if (carrier is! DshHttpCarrier) {
       final body = await _callRpcBridge('workbench.bridge.prompt', payload, timeout);

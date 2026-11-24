@@ -2045,6 +2045,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       selection: sessionId == null ? pendingModel : chat?.model,
                                       onSelected: _modelTarget(),
                                       grouped: true,
+                                      cliEngine: currentEngine,
                                     ),
                                   ),
                                   const WorkbenchModeBar(),
@@ -2082,6 +2083,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       selection: sessionId == null ? pendingModel : chat?.model,
                                       onSelected: _modelTarget(),
                                       grouped: true,
+                                      cliEngine: currentEngine,
                                     ),
                             ),
                     ),
@@ -2387,6 +2389,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                           ? ComposerModelPill(
                                               selection: sessionId == null ? pendingModel : chat?.model,
                                               onSelected: _modelTarget(),
+                                              cliEngine: currentEngine,
                                             )
                                           : null,
                                       tray: ComposerTrayStack.maybe(

@@ -14,14 +14,19 @@ List<ChatItem> cliSnapshotToChatItems(WorkbenchCliChatSnapshot snapshot) {
     seq += 1;
     if (msg.role == MessageRole.user) {
       final text = msg.parts.whereType<TextPart>().map((p) => p.text).join('\n');
-      if (text.trim().isEmpty) continue;
+      final files = [
+        for (final p in msg.parts.whereType<FilePart>()) p.attachment,
+        for (final p in msg.parts.whereType<ImagePart>())
+          FileAttachment(attachmentId: p.attachment.attachmentId, name: p.attachment.name ?? 'image', bytes: p.attachment.bytes),
+      ];
+      if (text.trim().isEmpty && files.isEmpty) continue;
       items.add(
         UserChatItem(
           seq: seq,
           time: msg.createdAt,
           text: text,
           images: const [],
-          files: const [],
+          files: files,
         ),
       );
       continue;
@@ -159,6 +164,47 @@ final workbenchBridgeSessionsProvider =
     NotifierProvider<WorkbenchBridgeSessionsController, List<SessionSummary>>(
       WorkbenchBridgeSessionsController.new,
     );
+
+/// 拉取指定外部 CLI 智能体自身支持的模型目录（与 DSH 原生模型目录彻底隔离）。
+final workbenchBridgeModelsProvider = FutureProvider.family<ModelCatalog?, CliEngine>((ref, engine) async {
+  if (engine == CliEngine.dsh) return null;
+  final client = ref.watch(activeConnectionProvider.select((c) => c.value?.client));
+  if (client == null) return null;
+  try {
+    return await client.readWorkbenchBridgeModels(engine);
+  } on WorkbenchBridgeUnavailableException {
+    return null;
+  }
+});
+
+/// 将外部快照中记录的模型名称（如 `Gemini 4 Neon Medium` 或 `gemini-4-neon-medium`）
+/// 规范化匹配到外部智能体目录中对应的 `ModelSelection`。
+ModelSelection? resolveCliModelSelection(ModelCatalog? catalog, String? rawModel, CliEngine engine) {
+  final raw = rawModel?.trim();
+  if (raw == null || raw.isEmpty) return null;
+  if (catalog == null || catalog.models.isEmpty) {
+    return ModelSelection(provider: engine.wire, model: raw);
+  }
+  final normalized = raw.toLowerCase().replaceAll(RegExp(r'[\s_()]+'), '-').replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-|-$'), '');
+  for (final model in catalog.models) {
+    final modelNorm = model.id.toLowerCase();
+    final nameNorm = model.name.toLowerCase().replaceAll(RegExp(r'[\s_()]+'), '-').replaceAll(RegExp(r'-+'), '-').replaceAll(RegExp(r'^-|-$'), '');
+    if (normalized == modelNorm || normalized == nameNorm || raw.toLowerCase() == modelNorm) {
+      return ModelSelection(
+        provider: model.provider,
+        model: model.id,
+        reasoningEffort: model.defaultEffort ?? (model.efforts.isEmpty ? null : model.efforts.first.id),
+      );
+    }
+    for (final effort in model.efforts) {
+      final suffix = '-${effort.id.toLowerCase()}';
+      if (normalized == '$modelNorm$suffix' || normalized == '$nameNorm$suffix') {
+        return ModelSelection(provider: model.provider, model: model.id, reasoningEffort: effort.id);
+      }
+    }
+  }
+  return ModelSelection(provider: engine.wire, model: raw);
+}
 
 /// 合并原生 DSH 会话与外部多 CLI 桥接会话；去重并按最近更新排序。
 final mergedSessionsProvider = Provider<AsyncValue<List<SessionSummary>>>((ref) {

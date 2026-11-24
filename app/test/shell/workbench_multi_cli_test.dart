@@ -8,6 +8,7 @@ import 'package:dsh_app/state/chat_state.dart';
 import 'package:dsh_app/state/terminal_state.dart';
 import 'package:dsh_app/state/workbench_bridge_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
+import 'package:dsh_app/ui/chat/model_sheet.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
@@ -125,5 +126,86 @@ void main() {
     expect(find.byKey(const ValueKey('cli-icon-claude')), findsOneWidget);
     expect(find.byKey(const ValueKey('cli-icon-codex')), findsOneWidget);
     expect(find.text('向 Antigravity 终端发送输入...'), findsOneWidget);
+  });
+
+  test('resolveCliModelSelection normalizes display names and effort suffixes', () {
+    const catalog = ModelCatalog(
+      defaultSelection: ModelSelection(provider: 'gemini', model: 'gemini-4-neon', reasoningEffort: 'high'),
+      routableProviders: ['gemini'],
+      groups: [
+        ProviderGroup('gemini', 'Gemini', [
+          ModelInfo(
+            provider: 'gemini',
+            id: 'gemini-4-neon',
+            name: 'Gemini 4 Neon',
+            efforts: [ReasoningEffort('medium', 'Medium', null), ReasoningEffort('high', 'High', null)],
+            defaultEffort: 'high',
+          ),
+        ]),
+      ],
+      failures: [],
+    );
+
+    final byLabel = resolveCliModelSelection(catalog, 'Gemini 4 Neon Medium', CliEngine.antigravity);
+    expect(byLabel?.provider, 'gemini');
+    expect(byLabel?.model, 'gemini-4-neon');
+    expect(byLabel?.reasoningEffort, 'medium');
+
+    final byWire = resolveCliModelSelection(catalog, 'gemini-4-neon-high', CliEngine.antigravity);
+    expect(byWire?.provider, 'gemini');
+    expect(byWire?.model, 'gemini-4-neon');
+    expect(byWire?.reasoningEffort, 'high');
+  });
+
+  testWidgets('Antigravity model sheet shows only Antigravity models and hides DSH manage link', (tester) async {
+    useWindow(tester, const Size(1280, 800));
+    mockClipboard(tester);
+    final extSessions = [
+      _cliSession(engine: CliEngine.antigravity, rawId: 'agy-1', title: 'Larch-4N', running: false),
+    ];
+    const agyCatalog = ModelCatalog(
+      defaultSelection: ModelSelection(provider: 'gemini', model: 'gemini-4-neon', reasoningEffort: 'high'),
+      routableProviders: ['gemini'],
+      groups: [
+        ProviderGroup('gemini', 'Gemini', [
+          ModelInfo(
+            provider: 'gemini',
+            id: 'gemini-4-neon',
+            name: 'Gemini 4 Neon',
+            efforts: [ReasoningEffort('low', 'Low', null), ReasoningEffort('high', 'High', null)],
+            defaultEffort: 'high',
+          ),
+        ]),
+      ],
+      failures: [],
+    );
+
+    await tester.pumpWidget(
+      testApp(
+        HomeShell(chatBuilder: (openDrawer) => ChatScreen(onOpenDrawer: openDrawer, backdrop: false)),
+        overrides: [
+          ...homeOverrides(
+            session: 'cli:antigravity:agy-1',
+            prefs: const LayoutPrefs(loaded: true, panelOpen: false),
+            chat: (id) => const ChatState(loading: false, items: []),
+          ),
+          workbenchBridgeSessionsProvider.overrideWith(() => _FakeBridgeSessions(extSessions)),
+          workbenchBridgeModelsProvider(CliEngine.antigravity).overrideWith((ref) async => agyCatalog),
+          terminalBackendProvider.overrideWith((ref, id) => FakeTerminalBackend(supported: false)),
+        ],
+      ),
+    );
+    await pumpFrames(tester, 4);
+
+    // 顶栏模型胶囊显示 ModelChip，点击弹出 Antigravity 专属模型面板
+    final chip = find.byType(ModelChip);
+    expect(chip, findsOneWidget);
+    await tester.tap(chip);
+    await pumpFrames(tester, 4);
+
+    expect(find.text('Antigravity 模型'), findsOneWidget);
+    expect(find.text('Gemini 4 Neon'), findsOneWidget);
+    expect(find.text('管理模型'), findsNothing);
+    expect(find.text('V4.1 Flash'), findsNothing);
   });
 }

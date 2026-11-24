@@ -202,6 +202,38 @@ void main() {
           'runId': 'run-1',
           'running': true,
         },
+        'workbench.bridge.models' => {
+          'ok': true,
+          'engine': params['engine'],
+          'defaultSelection': {'provider': 'gemini', 'model': 'gemini-4-neon', 'reasoningEffort': 'high'},
+          'routableProviders': ['gemini'],
+          'groups': [
+            {
+              'id': 'gemini',
+              'name': 'Gemini',
+              'models': [
+                {
+                  'id': 'gemini-4-neon',
+                  'name': 'Gemini 4 Neon',
+                  'efforts': [
+                    {'id': 'medium', 'name': 'Medium'},
+                    {'id': 'high', 'name': 'High'},
+                  ],
+                  'defaultEffort': 'high',
+                },
+              ],
+            },
+          ],
+          'failures': const <Object?>[],
+        },
+        'workbench.bridge.upload' => {
+          'ok': true,
+          'uploadId': params['uploadId'] ?? 'up-rpc-1',
+          'name': params['name'] ?? 'pic.png',
+          'mediaType': params['mediaType'] ?? 'image/png',
+          'bytes': (params['offset'] as int? ?? 0) + (base64Decode(params['chunkBase64'] as String).length),
+          'done': params['done'] == true,
+        },
         'workbench.bridge.abort' => {'ok': true, 'aborted': true},
         _ => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing'),
       };
@@ -220,6 +252,29 @@ void main() {
     expect((await client.readWorkbenchBridgeMessages(CliEngine.codex, 'cx-1')).engine, CliEngine.codex);
     expect((await client.sendWorkbenchBridgePrompt(engine: CliEngine.codex, rawSessionId: 'cx-1', prompt: 'hi')).running, isTrue);
     expect(await client.abortWorkbenchBridgeRun(CliEngine.codex, 'cx-1'), isTrue);
+
+    final models = await client.readWorkbenchBridgeModels(CliEngine.antigravity);
+    expect(models.groups.single.id, 'gemini');
+    expect(models.groups.single.models.single.id, 'gemini-4-neon');
+
+    final bigBytes = Uint8List.fromList(List<int>.filled(250 * 1024, 7));
+    final uploaded = await client.uploadWorkbenchBridgeAttachment(
+      name: 'big.png',
+      mediaType: 'image/png',
+      bytes: bigBytes,
+    );
+    expect(uploaded.uploadId, 'up-rpc-1');
+    expect(uploaded.bytes, bigBytes.length);
+
+    final withAttachment = await client.sendWorkbenchBridgePrompt(
+      engine: CliEngine.antigravity,
+      rawSessionId: 'agy-1',
+      prompt: '',
+      model: 'gemini-4-neon',
+      reasoningEffort: 'high',
+      attachmentIds: [uploaded.uploadId],
+    );
+    expect(withAttachment.running, isTrue);
 
     final unavailableClient = await DshClient.connectCarrier(
       _FakeRpcCarrier((method, params) async => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing')),
