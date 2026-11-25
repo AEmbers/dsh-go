@@ -410,7 +410,8 @@ class VoiceModeController extends Notifier<VoiceModeSnapshot> {
   /// captions follow it, so the chat calls this when it becomes the open one.
   Future<void> syncFocus(String? sessionId) async {
     final client = ref.read(activeConnectionProvider).value?.client;
-    if (client == null) return;
+    if (client == null || !state.serving) return;
+    if (sessionId == null && state.focus.sessionId == null && _wantedFocus == null) return;
     final generation = _generation;
     // The id of the tab this controller *is*, not of the stream it happens to
     // hold: minting one here would post a different tab on every call before

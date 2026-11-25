@@ -1,6 +1,8 @@
 # One patch per line, in application order. Keep every .diff exactly once.
 cordis-effect-dispose-completion.diff
+cordis-effect-setup-retention.diff
 cordis-inspect-catalog-on-query.diff
+cordis-reflect-empty-notify.diff
 credentials-decimal-refs.diff
 fs-create-exclusive.diff
 install-log-redaction.diff
@@ -15,6 +17,7 @@ client-hmr-closed-response.diff
 client-modules-combo-rebuild.diff
 client-modules-manifest-read.diff
 client-modules-combo-buffer.diff
+client-chunk-empty-path.diff
 schemastery-json-context.diff
 session-title-word-prefix.diff
 str-editor-view-prefix.diff
@@ -37,6 +40,8 @@ file-reference-hidden-paths.diff
 zzzzzzz-grep-retention-preview.diff
 glob-card-source-retention.diff
 file-reference-basename-match.diff
+file-reference-ranked-page.diff
+file-reference-score-upper-bound.diff
 zzzzzzz-input-recovery.diff
 zzzzzzz-job-follow-removal.diff
 search-card-byte-budget.diff
@@ -53,6 +58,7 @@ zzzzzzz-reference-drop-size.diff
 zzzzzzz-reference-encoding.diff
 otel-product-transport-lazy.diff
 otel-log-transformer-imports.diff
+otel-stable-attributes-imports.diff
 zzzzzzz-retainer-decode-copy.diff
 zzzzzzz-settings-local-redaction.diff
 zzzzzzz-skill-watcher-recheck.diff
@@ -129,6 +135,7 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-instruction-encoding-reuse.diff
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-str-editor-bom.diff
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-sqlite-document-count.diff
 session-cold-unused-fingerprint.diff
+sqlite-highlight-byte-count.diff
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-session-lifecycle-enumeration.diff
 jsonl-materialize-rename.diff
 jsonl-migration-link-fallback.diff
@@ -150,6 +157,9 @@ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-companion-signals.diff
 tool-author-annotation-keys.diff
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-phone-run-end.diff
 tool-schema-keyword-types.diff
+tool-schema-intrinsic-source.diff
+tool-schema-rule-pair-fields.diff
+tool-schema-local-intrinsic-identity.diff
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-phone-run-end-schema.diff
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-phone-run-end-retry.diff
 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-phone-run-end-live-retry.diff
@@ -164,13 +174,17 @@ rrule-weekly-first-period.diff
 rrule-mixed-byday.diff
 input-trigger-source-recovery.diff
 jsonl-frozen-live-event.diff
+jsonl-identical-cold-read.diff
 web-preset-save-freshness.diff
 web-search-key-write-result.diff
 deepseek-attachment-error.diff
 fork-default-effort.diff
 config-editor-lock-order.diff
+config-editor-empty-layer-copy.diff
 piai-overflow-output-limit.diff
 schedule-authorization-availability.diff
+schedule-task-schema-on-demand.diff
+schedule-private-scope.diff
 deepseek-refusal.diff
 deepseek-unnamed-stream-error.diff
 web-empty-reply-notice.diff
@@ -179,6 +193,7 @@ plugin-compatibility-exact-version.diff
 profile-sibling-package-lookup.diff
 profile-runtime-version-validation.diff
 profile-runtime-version-preflight.diff
+profile-telemetry-compose-on-opt-out.diff
 messages-usage-evidence.diff
 piai-usage-evidence.diff
 piai-tool-call-id.diff
@@ -200,11 +215,21 @@ ohos-api-gateway-idle.diff
 companion-find-drafts-files.diff
 companion-read-file-capacity.diff
 companion-compare-output-window.diff
+companion-screen-image.diff
+companion-screen-piai-image.diff
+companion-agent-model-call.diff
+office-parent-font-import.diff
 companion-receipt-file-bytes.diff
 web-table-pipes.diff
 ohos-web-converter-lazy.diff
 office-converter-lazy.diff
+office-data-buffer-scope.diff
 input-recovery.diff
+ohos-client-hmr-idle.diff
+ohos-skill-root-events.diff
+ohos-piai-empty-models.diff
+projection-current-state.diff
+brotli-packed-dictionary.diff
 # HarmonyOS-only overlays (pins.json targetSets.ohos), after the whole common chain.
 ohos-attachment-publication.diff
 ohos-attachment-diagnostic.diff
@@ -238,10 +263,7 @@ ohos-plugin-linkless.diff
 ohos-mcp-command-router.diff
 ohos-workspace-grant-paths.diff
 ohos-workspace-edit.diff
-ohos-client-hmr-idle.diff
 ohos-image-codec.diff
-ohos-skill-root-events.diff
-ohos-piai-empty-models.diff
 ohos-mcp-start-close.diff
 ohos-jobs-active.diff
 ohos-piai-text-preabort.diff

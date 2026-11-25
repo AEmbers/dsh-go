@@ -877,6 +877,12 @@ def base_drop(path):
     return False
 
 
+# Packages whose runtime entry points all resolve outside these directories; the .ts
+# sources only feed their own builds (docs/maintenance/engine-typescript-source-pruning-contract.md).
+TS_SOURCE_DIRS = ("node_modules/openai/src/", "node_modules/@anthropic-ai/sdk/src/",
+                  "node_modules/@js-temporal/polyfill/lib/", "node_modules/minisearch/src/")
+
+
 def dsh_drop_reason(rel, abi, prune_dev):
     parts = rel.split("/")
     if "prebuilds" in parts:
@@ -891,8 +897,12 @@ def dsh_drop_reason(rel, abi, prune_dev):
     if "node-pty/third_party/conpty" in rel:
         return "foreign-binary"
     if prune_dev:
+        if rel.startswith("node_modules/@agentclientprotocol/sdk/dist/") and rel.endswith(".test.js"):
+            return "package-tests"
         if rel.startswith((
                 "node_modules/@mixmark-io/domino/test/",
+                "node_modules/gaxios/build/esm/test/",
+                "node_modules/gaxios/build/cjs/test/",
                 "node_modules/zod/src/v3/tests/",
                 "node_modules/zod/src/v4/classic/tests/",
                 "node_modules/zod/src/v4/core/tests/",
@@ -900,8 +910,12 @@ def dsh_drop_reason(rel, abi, prune_dev):
             return "package-tests"
         if "/typescript/" not in "/" + rel and low.endswith((".d.ts", ".d.mts", ".d.cts", ".tsbuildinfo")):
             return "dev-metadata"
-        if low.endswith((".js.map", ".mjs.map", ".cjs.map", ".ts.map", ".css.map")):
+        if low.endswith((".js.map", ".mjs.map", ".cjs.map", ".ts.map", ".css.map", ".d.mts.map", ".d.cts.map")):
             return "dev-metadata"
+        if rel.startswith(TS_SOURCE_DIRS) and low.endswith(".ts"):
+            return "package-typescript-source"
+        if rel.startswith("node_modules/koffi/") and low.endswith((".cc", ".h", ".hh")):
+            return "package-build-source"
         if rel == "node_modules/@mixmark-io/domino/.yarn/plugins/@yarnpkg/plugin-version.cjs":
             return "package-build-tool"
     return None

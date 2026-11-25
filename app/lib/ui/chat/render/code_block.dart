@@ -286,6 +286,12 @@ TextSpan _highlightChunk(
 /// 满 400 行还没找到就硬切。
 @visibleForTesting
 List<String> codeChunks(String code) {
+  var startOfLine = 0;
+  for (var line = 0; line < 200; line++) {
+    final end = code.indexOf('\n', startOfLine);
+    if (end < 0 || end + 1 == code.length) return [code];
+    startOfLine = end + 1;
+  }
   final lines = <String>[];
   for (var at = 0; at < code.length;) {
     final end = code.indexOf('\n', at);
@@ -293,7 +299,6 @@ List<String> codeChunks(String code) {
     lines.add(code.substring(at, next));
     at = next;
   }
-  if (lines.length <= 200) return [code];
   final topLevel = RegExp(r'^[A-Za-z0-9_]');
   final chunks = <String>[];
   var start = 0;
@@ -402,10 +407,23 @@ class _CodeBlockState extends State<CodeBlock> {
   double? _cachedFontSize;
 
   /// 复制成功后图标原地闪成对勾再回退 —— 比 SnackBar 轻。
-  bool _copied = false;
+  late _CopyButton _copyButton = _CopyButton(copied: false, onTap: _copy);
 
   /// 长行折回显示,而不是横向滚动。
   bool _wrap = false;
+  _HeaderButton? _wrapButton;
+
+  _HeaderButton _wrapControl(L10n l10n) {
+    final hint = _wrap ? l10n.chatUnwrapLines : l10n.chatWrapLines;
+    final button = _wrapButton;
+    if (button != null && button.selected == _wrap && button.tooltip == hint) return button;
+    return _wrapButton = _HeaderButton(
+      icon: AppIcons.wrapLines,
+      tooltip: hint,
+      selected: _wrap,
+      onTap: () => setState(() => _wrap = !_wrap),
+    );
+  }
 
   /// While code streams in, it is highlighted again at most this often (the
   /// last chunk of up to 8000 characters, every delta, was the cost); what
@@ -433,12 +451,14 @@ class _CodeBlockState extends State<CodeBlock> {
     return code;
   }
 
+  void _setCopied(bool copied) => setState(() => _copyButton = _CopyButton(copied: copied, onTap: _copy));
+
   void _copy() {
     Clipboard.setData(ClipboardData(text: _trimmedCode));
     HapticFeedback.lightImpact();
-    setState(() => _copied = true);
+    _setCopied(true);
     Future.delayed(const Duration(milliseconds: 1200), () {
-      if (mounted) setState(() => _copied = false);
+      if (mounted) _setCopied(false);
     });
   }
 
@@ -484,7 +504,14 @@ class _CodeBlockState extends State<CodeBlock> {
           ],
         );
       } else {
+        final old = grows ? _span : null;
         _span = _shown = highlightCode(code, widget.language, brightness, style: style, accent: accent, syntax: syntax);
+        // Code that grew replaced its cached prefix: the old span itself (one chunk) or its
+        // last chunk (several). Drop that from the global cache unless the new span reuses it.
+        for (final stale in [?old, ?old?.children?.lastOrNull]) {
+          if (identical(stale, _span) || (_span!.children?.any((c) => identical(c, stale)) ?? false)) continue;
+          _chunkSpans.removeWhere((_, span) => identical(span, stale));
+        }
         _cachedCode = code;
         _cachedLanguage = widget.language;
         _cachedBrightness = brightness;
@@ -637,13 +664,8 @@ class _CodeBlockState extends State<CodeBlock> {
                           onTap: () => Navigator.of(context).push(MermaidPreviewPage.route(source: code)),
                         )
                       else if (widget.replyActions)
-                        _HeaderButton(
-                          icon: AppIcons.wrapLines,
-                          tooltip: _wrap ? l10n.chatUnwrapLines : l10n.chatWrapLines,
-                          selected: _wrap,
-                          onTap: () => setState(() => _wrap = !_wrap),
-                        ),
-                      _CopyButton(copied: _copied, onTap: _copy),
+                        _wrapControl(l10n),
+                      _copyButton,
                       const SizedBox(width: 8),
                     ],
                   ),

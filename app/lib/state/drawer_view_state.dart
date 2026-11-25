@@ -738,24 +738,19 @@ List<DrawerBlock> drawerBlocks({
   final visible = sessionsInListScope(sessions, listScope, keepId: keepId);
   DateTime keyOf(SessionSummary s) =>
       view.sort == DrawerSort.created ? (createdAt[s.sessionId] ?? s.updatedAt) : s.updatedAt;
-  final sorted = [...visible]
+  bool matches(SessionSummary s) => switch (filter) {
+    DrawerFilter.running => s.running,
+    DrawerFilter.pending => pending.containsKey(s.sessionId),
+    DrawerFilter.unread => unread.contains(s.sessionId),
+    DrawerFilter.all => true,
+  };
+  final sorted = (filter == DrawerFilter.all ? [...visible] : visible.where(matches).toList())
     ..sort((a, b) {
       final byKey = keyOf(b).compareTo(keyOf(a));
       return byKey != 0 ? byKey : a.sessionId.compareTo(b.sessionId);
     });
   if (filter != DrawerFilter.all) {
-    bool matches(SessionSummary s) => switch (filter) {
-      DrawerFilter.running => s.running,
-      DrawerFilter.pending => pending.containsKey(s.sessionId),
-      DrawerFilter.unread => unread.contains(s.sessionId),
-      DrawerFilter.all => true,
-    };
-    return [
-      FilteredBlock(filter, [
-        for (final s in sorted)
-          if (matches(s)) s,
-      ]),
-    ];
+    return [FilteredBlock(filter, sorted)];
   }
   final folderOf = view.folderOf;
   final pinnedSet = pinnedIds.toSet();

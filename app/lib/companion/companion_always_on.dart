@@ -4,10 +4,13 @@ import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../pets/overlay_channel.dart';
 import '../speech/speech_settings.dart' show companionEffectiveVoiceProvider;
 
 import '../state/companion_agent_state.dart';
+import '../state/models_state.dart' show modelSelectionScopeProvider;
+import '../state/phone_state.dart' show phoneChannelProvider;
 import 'companion_agent.dart';
 import 'companion_agent_task_ui.dart';
 import 'companion_float.dart';
@@ -16,10 +19,12 @@ import 'companion_initiative.dart';
 import 'companion_initiative_owner.dart';
 import 'companion_maps.dart';
 import 'companion_moves.dart';
+import 'companion_reply.dart';
 import 'companion_residency.dart';
 import 'companion_screen_observer.dart';
 import 'companion_state.dart' show companionNameProvider;
 import 'companion_voice.dart';
+import 'companion_voice_source.dart' show CompanionVoiceSource;
 
 /// DshApp watches this provider. Merely reading an ordinary Provider does not
 /// retain the Ref.listen dependencies needed by a resident visit.
@@ -31,8 +36,9 @@ final companionAlwaysOnOwnerProvider = Provider<CompanionAlwaysOnOwner>((ref) {
   ref.listen(companionEffectiveVoiceProvider, (_, value) {
     if (value?.on != true) owner._hush();
   });
-  ref.listen(petOverlayProvider, (_, value) {
-    if (!value.showing) owner._hush();
+  ref.listen(petOverlayProvider, (previous, value) {
+    // Her phone work hides her floating self; what she says meanwhile goes on.
+    if (previous?.showing == true && !value.showing && !owner._onPhone) owner._hush();
   });
   ref.listen(companionNameProvider, (_, value) => owner._rename(value));
   ref.onDispose(owner.close);
@@ -61,6 +67,7 @@ class CompanionAlwaysOnOwner {
   late final CompanionSpeaker _speaker;
   late final CompanionScreenObserver _screen;
   CompanionScreenObserver get screen => _screen;
+  ProviderSubscription<Object>? _screenRoute;
   StreamSubscription<int>? _packChanges;
   void Function()? _removeBeforePack;
   CompanionAgentResident? _resident;
@@ -78,10 +85,14 @@ class CompanionAlwaysOnOwner {
   String get _name => _givenName ?? _packName ?? 'Companion';
   String? _reply;
   String? _sentText;
+  String? _sentWords;
   bool? _sentRunning;
+  int _sentSteps = 0;
+  CompanionPhoneLines _phoneLines = CompanionPhoneLines();
+  StreamSubscription<void>? _phoneStops;
   bool _fromFloat = false;
   final _spokenReplies = <String>{};
-  final _voices = <String, ({String bubble, int chars})>{};
+  final _voices = <String, ({String bubble, int chars, int utterance, bool ambient})>{};
   int _voiceGeneration = 0;
   int _voiceSerial = 0;
   int _textAfterControl = 0;
@@ -143,6 +154,8 @@ class CompanionAlwaysOnOwner {
     lease.setReducedPower(_status.reducedPower);
     await lease.openMemory();
     if (_closed || generation != _generation || !lease.active) return;
+    // A model change re-routes what she sees; heard only while she can look.
+    _screenRoute ??= ref.listen(modelSelectionScopeProvider, (_, _) => agent.modelRouteChanged());
     _screen.start();
     _changed();
   }
@@ -158,6 +171,7 @@ class CompanionAlwaysOnOwner {
       _resident!
           .submit(
             text,
+            fromFloat: fromFloat,
             onCommitted: (source) {
               if (!accepted.isCompleted) accepted.complete(true);
               _post(id: 'input:${source['id']}', text: text, user: true);
@@ -175,6 +189,8 @@ class CompanionAlwaysOnOwner {
 
   Future<Object?> _overlayAction(MethodCall call) async {
     if (call.method == 'companionAskTarget') {
+      // The person opens her composer to say something: she stops to listen.
+      _hush();
       return {
         'fresh': {'line': _name},
         'recent': [
@@ -225,22 +241,135 @@ class CompanionAlwaysOnOwner {
       _reply = reply;
       _sentText = null;
       _sentRunning = null;
+      _sentSteps = 0;
+      _phoneLines = CompanionPhoneLines();
       _textAfterControl = 0;
     }
     final text = agent.text;
-    final visible = _textAfterControl <= text.length ? text.substring(_textAfterControl).trim() : '';
-    if (reply == null || visible.isEmpty || (visible == _sentText && _sentRunning == agent.running)) return;
+    final raw = _textAfterControl <= text.length ? text.substring(_textAfterControl) : '';
+    final moves = _resident!.moves;
+    final parsed = !agent.hasSessionReply ? null : parseCompanionReply(
+      raw,
+      streaming: agent.running,
+      emotions: moves.emotionLabels,
+      actions: moves.actionLabels,
+    );
+    final activity = agent.sessionActivity;
+    final visible = parsed == null ? raw.trim() : activity ??
+        (parsed.words.isEmpty && !agent.running && _sentText != null
+            ? agent.error == null ? appL10n.stateAlertPublicDone : appL10n.stateAlertPublicFailed
+            : parsed.words);
+    final words = parsed?.words;
+    final steps = agent.phoneSteps;
+    _watchPhoneStops(_onPhone);
+    if (reply == null || visible.isEmpty) return;
+    // Her status can stay put while her words go on: those are still heard.
+    final fresh = visible != _sentText || _sentRunning != agent.running || steps != _sentSteps;
+    if (!fresh && words == _sentWords) return;
     _sentText = visible;
+    _sentWords = words;
     _sentRunning = agent.running;
-    final speak = !agent.running && _fromFloat && _resident?.ownsCurrentRun == true && _spokenReplies.add(reply);
+    _sentSteps = steps;
+    final resident = _resident;
+    // While her room is open, even behind another app, it reads her words aloud.
+    final voiced = resident != null && !resident.roomOpen;
+    var line = visible;
+    String? phoneSay;
+    if (steps > 0) {
+      // On the phone: her latest line in the bubble, and heard as she goes.
+      final read = _phoneLines.read(
+        words ?? companionWithoutMarks(visible, streaming: agent.running),
+        steps: steps,
+        running: agent.running,
+      );
+      // No new words since her last step: her status (waiting for you to
+      // confirm) holds the bubble instead.
+      line = read.line.isNotEmpty ? read.line : activity ?? '';
+      if (voiced && read.say.isNotEmpty) phoneSay = read.say;
+    }
+    final speak = steps == 0 &&
+        voiced &&
+        (parsed?.words ?? raw.trim()).isNotEmpty &&
+        !agent.running &&
+        _fromFloat &&
+        resident.ownsCurrentRun &&
+        _spokenReplies.add(reply);
     while (_spokenReplies.length > 64) {
       _spokenReplies.remove(_spokenReplies.first);
     }
-    unawaited(_presentLine(id: reply, text: visible, emotion: 'neutral', speak: speak));
-    _post(id: reply, text: visible);
+    final generation = _voiceGeneration;
+    if (resident != null && line.isNotEmpty && (fresh || steps > 0)) {
+      unawaited(
+        resident.deliverReply(reply, raw, (noticeEpoch) async {
+          final shown = await _presentLine(
+            id: reply,
+            text: line,
+            emotion: parsed?.marks.where((m) => m.kind == CompanionMarkKind.emotion).lastOrNull?.name ?? 'neutral',
+            speak: speak,
+            noticeEpoch: noticeEpoch,
+          );
+          // Phone work mostly hides her floating self: her words are heard all the same.
+          if (phoneSay != null && noticeEpoch == null) await _speak(reply, phoneSay, generation, keepUp: true);
+          return shown;
+        }),
+      );
+    }
+    if (fresh) _postReply(reply, raw, visible);
+  }
+
+  bool get _onPhone => agent.running && agent.phoneSteps > 0;
+
+  /// While she works on the phone, the person stopping it from the island or
+  /// pill stops her voice too.
+  void _watchPhoneStops(bool onPhone) {
+    if (onPhone) {
+      _phoneStops ??= companionPhoneUserStops(ref.read(phoneChannelProvider).statusChanges).listen((_) => _hush());
+    } else if (_phoneStops != null) {
+      unawaited(_phoneStops!.cancel());
+      _phoneStops = null;
+    }
+  }
+
+  /// The reply update still waiting in [_notificationQueue].
+  _ReplyUpdate? _replyUpdate;
+
+  /// A streaming reply reaches the notification a few times a second, its
+  /// latest text each time: Android drops updates to a notification beyond
+  /// about five a second (the last one too), and each update holds the
+  /// platform thread for two file locks and several system calls.
+  void _postReply(String id, String raw, String text) {
+    final waiting = _replyUpdate;
+    if (waiting != null &&
+        waiting.id == id &&
+        waiting.generation == _outputGeneration &&
+        waiting.epoch == _status.epoch) {
+      waiting.raw = raw;
+      waiting.text = text;
+      return;
+    }
+    final update = _replyUpdate = _ReplyUpdate(id, raw, text, _outputGeneration, _status.epoch);
+    _notificationQueue = _notificationQueue.catchError((Object _) {}).then((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (identical(_replyUpdate, update)) _replyUpdate = null;
+      if (!active || update.generation != _outputGeneration || update.epoch != _status.epoch) return;
+      final resident = _resident;
+      if (resident == null) return;
+      await resident.deliverReply(
+        update.id,
+        update.raw,
+        (noticeEpoch) => channel.update(
+          epoch: update.epoch,
+          name: _name,
+          text: update.text,
+          id: update.id,
+          noticeEpoch: noticeEpoch,
+        ),
+      );
+    });
   }
 
   void _post({required String id, required String text, bool user = false}) {
+    _replyUpdate = null;
     final generation = _outputGeneration;
     final epoch = _status.epoch;
     _notificationQueue = _notificationQueue.catchError((Object _) {}).then((_) async {
@@ -267,6 +396,8 @@ class CompanionAlwaysOnOwner {
   void _retireLease() {
     final resident = _resident;
     _screen.stop();
+    _screenRoute?.close();
+    _screenRoute = null;
     _hush();
     ++_outputGeneration;
     unawaited(overlay.clearCompanion());
@@ -300,7 +431,9 @@ class CompanionAlwaysOnOwner {
     overlay.setCompanionActionHandler(null);
     unawaited(_input.cancel());
     unawaited(_voiceEvents.cancel());
+    _watchPhoneStops(false);
     _screen.dispose();
+    _screenRoute?.close();
   }
 
   Future<bool> _presentLine({
@@ -308,18 +441,48 @@ class CompanionAlwaysOnOwner {
     required String text,
     required String emotion,
     required bool speak,
+    int? noticeEpoch,
+    bool ambient = false,
   }) async {
     final generation = _voiceGeneration;
-    final shown = await overlay.presentCompanion(id: id, text: text, emotion: emotion, speaking: false);
-    if (!shown || !speak || !active || generation != _voiceGeneration) return shown;
-    final settings = ref.read(companionEffectiveVoiceProvider);
-    if (settings?.on != true) return shown;
-    final ready = await _speaker.ready(settings!);
-    if (!ready || !active || generation != _voiceGeneration || !ref.read(petOverlayProvider).showing) return shown;
-    final voiceId = 'float:${_status.epoch}:${++_voiceSerial}';
-    _voices[voiceId] = (bubble: id, chars: text.length);
-    _speaker.speak(voiceId, text);
+    final shown = await overlay.presentCompanion(
+      id: id,
+      text: text,
+      emotion: emotion,
+      speaking: false,
+      noticeEpoch: noticeEpoch,
+    );
+    // Notice-derived words stay on the already-authorized text surface. A
+    // voice model warm-up cannot retain authority across a later lock.
+    if (!shown || noticeEpoch != null || !speak || !ref.read(petOverlayProvider).showing) return shown;
+    await _speak(id, text, generation, ambient: ambient);
     return shown;
+  }
+
+  /// Reads [words] aloud in her voice when it is on; her mouth moves along in
+  /// [bubble] while that shows. [keepUp]: on the phone, a line that would wait
+  /// behind two others replaces them, so she never falls behind what she does.
+  /// [ambient]: a line of her own (the screen) takes over from an earlier one
+  /// still being read instead of queueing behind it; her replies are not cut.
+  Future<void> _speak(String bubble, String words, int generation, {bool keepUp = false, bool ambient = false}) async {
+    final settings = ref.read(companionEffectiveVoiceProvider);
+    if (settings?.on != true) return;
+    final ready = await _speaker.ready(settings!);
+    if (!ready || !active || generation != _voiceGeneration) return;
+    // A screen line never waits behind her reply; it only replaces another screen line.
+    if (ambient && _voices.values.any((line) => !line.ambient)) return;
+    // Counted in sentences: a long one split into parts is still one.
+    if (keepUp && _voices.values.map((line) => line.utterance).toSet().length > 1 || ambient && _voices.isNotEmpty) {
+      _hush();
+    }
+    // The phone's own synthesizer takes only so much at once, as in her room.
+    final parts = settings.source == CompanionVoiceSource.system ? companionSystemSpeechParts(words) : [words];
+    final utterance = _voiceSerial + 1;
+    for (final part in parts) {
+      final voiceId = 'float:${_status.epoch}:${++_voiceSerial}';
+      _voices[voiceId] = (bubble: bubble, chars: part.length, utterance: utterance, ambient: ambient);
+      _speaker.speak(voiceId, part);
+    }
   }
 
   void _voiceEvent(CompanionVoiceEvent event) {
@@ -355,19 +518,28 @@ class CompanionAlwaysOnOwner {
 /// Background is not a visible/resumed room. It cannot manufacture a picker,
 /// a real frame acknowledgement, or a fresh foreground task capability.
 class _ResidentUi
-    implements CompanionAgentRoomUi, CompanionInitiativeRoom, CompanionAgentAmbientUi, CompanionAgentNotificationUi {
+    implements
+        CompanionAgentRoomUi,
+        CompanionFallbackUi,
+        CompanionInitiativeRoom,
+        CompanionAgentAmbientUi,
+        CompanionAgentNotificationUi,
+        CompanionAgentNoticeUi {
   _ResidentUi(this.owner);
   final CompanionAlwaysOnOwner owner;
   @override
   bool get presentationAvailable => owner.active && owner.ref.read(petOverlayProvider).showing;
   @override
   Future<bool> presentLine({required String id, required String text, required String emotion, required bool speak}) =>
-      owner._presentLine(id: id, text: text, emotion: emotion, speak: speak);
+      owner._presentLine(id: id, text: text, emotion: emotion, speak: speak, ambient: true);
   @override
   void stopSpeech() => owner._hush();
   @override
   Future<bool> deliverFollowup({required String id, required String text}) =>
       owner.channel.deliver(epoch: owner._status.epoch, name: owner._name, text: text, id: id);
+  @override
+  Future<bool> deliverNotice({required String id, required String text, required int noticeEpoch}) => owner.channel
+      .deliver(epoch: owner._status.epoch, name: owner._name, text: text, id: id, noticeEpoch: noticeEpoch);
   @override
   bool get mounted => !owner._closed && owner._status.enabled && owner._status.running;
   @override
@@ -380,7 +552,7 @@ class _ResidentUi
   CompanionInitiativeView get initiativeView => CompanionInitiativeView(
     visible: false,
     resumed: false,
-    blocked: owner.agent.running,
+    blocked: owner.agent.running && owner._resident?.preparingSignalId == null,
     accessible: false,
     enabled: owner.active && owner.ref.read(companionInitiativeEnabledProvider) == true,
     notificationAvailable: owner.active && owner._status.notificationAvailable,
@@ -392,6 +564,10 @@ class _ResidentUi
   CompanionAgentTaskUi tasks({required bool Function() isCurrent}) => _ResidentTaskUi(isCurrent);
   @override
   void committed(String raw) {}
+  @override
+  void continuedOnPhone(String sourceId) {
+    unawaited(presentLine(id: 'route:$sourceId', text: appL10n.companionContinuedOnPhone, emotion: 'neutral', speak: false));
+  }
   @override
   void failed(Object error, {String? retry}) => owner._failure();
   @override
@@ -411,11 +587,14 @@ class _ResidentUi
   @override
   void hideFollowup(String ticketId) {}
   @override
-  bool canPresent(CompanionInitiativeTicket ticket) =>
-      ticket.kind == CompanionPromptKind.signal &&
-      owner.active &&
-      owner._status.notificationAvailable &&
-      !owner.agent.running;
+  bool canPresent(CompanionInitiativeTicket ticket) {
+    final preparing = owner._resident?.preparingSignalId;
+    return ticket.kind == CompanionPromptKind.signal &&
+        owner.active &&
+        owner._status.notificationAvailable &&
+        (!owner.agent.running || (preparing != null && ticket.signalId == preparing));
+  }
+
   @override
   void show(CompanionInitiativeDisplay display) {}
   @override
@@ -488,4 +667,13 @@ class _ResidentTaskUi implements CompanionAgentTaskUi {
   void accepted(MemoryRow task) {}
   @override
   void startForeground(List<CompanionNotesForegroundCapture> captures, {required bool Function() isCurrent}) {}
+}
+
+final class _ReplyUpdate {
+  _ReplyUpdate(this.id, this.raw, this.text, this.generation, this.epoch);
+  final String id;
+  String raw;
+  String text;
+  final int generation;
+  final int epoch;
 }

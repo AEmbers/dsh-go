@@ -448,7 +448,13 @@ String _memoryBlock(List<MemoryRow> cards) => jsonEncode({
   'version': 2,
   'scope': 'real',
   'items': [
-    for (final card in cards) {'id': card['id'], 'kind': card['kind'], 'text': card['text']},
+    for (final card in cards)
+      {
+        'id': card['id'],
+        'kind': card['kind'],
+        'text': card['text'],
+        if (card['source'] != null) 'source': card['source'],
+      },
   ],
 });
 
@@ -616,7 +622,7 @@ MemoryRow _correction(String replacement, String? target, List<MemoryRow> cards)
 
 /// Recognizes a few direct invitations, not arbitrary keyword questions.
 /// The returned permission lasts for one selection; it never changes a topic.
-Set<String> explicitMemoryTopics(String input, List<MemoryRow> cards) {
+Set<String> explicitMemoryTopics(String input, Iterable<MemoryRow> cards) {
   final text = normalizeMemoryText(_controlInput(input));
   if (_nonLiteralControl(text)) return {};
   final match =

@@ -99,9 +99,10 @@ extension CompanionMemoryScopeStore on CompanionMemoryStore {
     required String? characterId,
     required String fromDay,
     required String beforeDay,
+    String? explicitUserInput,
   }) {
     _checkMemoryCharacter(characterId);
-    return [
+    final fixed = [
       for (final card in _memoryDomainCards(
         characterId,
         where:
@@ -110,6 +111,20 @@ extension CompanionMemoryScopeStore on CompanionMemoryStore {
         args: [characterId, fromDay, beforeDay],
       ))
         if (_memoryReferencesCurrent(card['id'] as String)) card,
+    ];
+    var explicit = const <String>{};
+    if (explicitUserInput != null && fixed.any((card) => card['topic_mode'] == 'never')) {
+      // Only an invitation needs the whole domain to resolve ambiguity. Matching
+      // reads text, keywords and aliases, so the domain need not load evidence.
+      Iterable<MemoryRow> domain() sync* {
+        yield* _memoryDomainCards(characterId, includeEvidence: false);
+      }
+      explicit = explicitMemoryTopics(explicitUserInput, domain());
+    }
+    final at = _checkedNow();
+    return [
+      for (final card in fixed)
+        if (isMemoryContextEligible(card, nowMs: at, explicitTopicIds: explicit)) card,
     ];
   }
 

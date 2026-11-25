@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dsh_client/dsh_client.dart';
 import 'package:http/http.dart' as http;
 
 import 'companion_light.dart';
@@ -63,6 +64,11 @@ Map<String, Object?> _safeToolOutcome(String content) {
       'limited',
       'sourceSessionId',
       'receiptError',
+      // A forget that asked to erase original chat as well: what is still
+      // waiting for the person, so her reply does not claim it is gone.
+      'pendingRawEraseId',
+      'rawEraseState',
+      'rawEraseMessage',
     ])
       if (decoded.containsKey(key)) key: decoded[key],
     if (decoded['task'] case final Map row) 'task': task(row),
@@ -92,6 +98,26 @@ bool _controlRetiresText(CompanionAgentToolCall call, CompanionAgentToolResult r
     return call.input['card'] != null;
   }
   return !const ['ask_later', 'cancel', 'postpone'].contains(call.name);
+}
+
+// A later own control invalidates an earlier raw-erase proposal. Its durable
+// card outcome stays, but the old result must not claim it is still pending.
+Map<String, Object?> _withoutRawEraseFields(Map<String, Object?> result) {
+  if (result['type'] != 'tool_result') return result;
+  final content = result['content'];
+  if (content is! String) return result;
+  Object? decoded;
+  try {
+    decoded = jsonDecode(content);
+  } on FormatException {
+    return result;
+  }
+  if (decoded is! Map || !const {'pending', 'awaiting'}.contains(decoded['rawEraseState'])) return result;
+  final remaining = Map<String, Object?>.from(decoded);
+  for (final field in const ['pendingRawEraseId', 'rawEraseState', 'rawEraseMessage']) {
+    remaining.remove(field);
+  }
+  return {...result, 'content': jsonEncode(remaining)};
 }
 
 Map<String, Object?> _retiredToolResult(Map<String, Object?> result) => {
@@ -129,11 +155,18 @@ class CompanionAgentModelRequest {
   CompanionAgentModelRequest(this.id);
 
   final String id;
+
+  /// The Host input already encoded and measured for this request, if any.
+  CompanionAgentInput? hostInput;
   final settled = Completer<void>();
   http.Client? client;
   StreamIterator<String>? stream;
   Future<void>? cancellation;
+  DshHttpAbort? _hostAbort;
+  Future<void>? _hostDrain;
   bool sent = false;
+  bool uncertain = false;
+  bool notSentProven = false;
   bool finalized = false;
   String text = '';
 
@@ -173,7 +206,78 @@ class CompanionAgentModelRequest {
     return message;
   }
 
+  Future<CompanionAgentMessage?> readHost({
+    required DshClient client,
+    required CompanionAuxiliaryCapability capability,
+    required String system,
+    required List<Map<String, Object?>> messages,
+    required List<CompanionAgentTool> tools,
+    required bool Function() isCurrent,
+    required void Function(String) onText,
+    required void Function() onDispatchUncertain,
+    required void Function() onSent,
+    required void Function(Map<String, Object?>) onUsage,
+    void Function(Map<String, Object?>, {required bool partial})? onUsageSettled,
+    int maxTokens = 800,
+  }) async {
+    if (!isCurrent()) return null;
+    final abort = _hostAbort = DshHttpAbort();
+    // An input that fails to encode settles as notSent, as the call's own failures do.
+    final future = Future.sync(
+      () => client.callCompanionAgent(
+        capability,
+        requestId: id,
+        input:
+            hostInput ??
+            CompanionAgentInput(system: system, messages: messages, tools: [for (final tool in tools) tool.toJson()]),
+        maxTokens: maxTokens,
+        abort: abort,
+        onDispatchUncertain: onDispatchUncertain,
+        onSent: onSent,
+        onText: (delta) {
+          if (!isCurrent()) {
+            abort.abort();
+            return;
+          }
+          onText(delta);
+        },
+        onUsage: (usage) {
+          // Late receipts still belong to this captured physical request.
+          onUsage(usage);
+          final view = CompanionUsage.fromReceipt(usage);
+          onUsageSettled?.call(view.telemetry, partial: !view.complete);
+        },
+      ),
+    );
+    _hostDrain = future.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    try {
+      final result = await future;
+      notSentProven = result.dispatched == false;
+      if (!isCurrent() || abort.isAborted) return null;
+      final message = result.message;
+      if (message == null) {
+        throw CompanionHostError(
+          companionHostFailure(result.errorCode, httpStatus: result.httpStatus),
+          result.errorCode ?? result.terminal,
+        );
+      }
+      return CompanionAgentMessage(
+        content: (message['content']! as List).cast<Map<String, Object?>>(),
+        stopReason: message['stopReason']! as String,
+        source: message['source']! as Map<String, Object?>,
+      );
+    } on CompanionAuxiliaryFailure catch (error) {
+      notSentProven = error.notSent;
+      throw CompanionHostError(companionHostFailure(error.code, httpStatus: error.httpStatus), error.code);
+    } finally {
+      abort.abort();
+    }
+  }
+
   Future<void> drain() {
+    _hostAbort?.abort();
+    final host = _hostDrain;
+    if (host != null) return cancellation ??= host;
     final iterator = stream;
     if (iterator == null) return Future<void>.value();
     return cancellation ??= iterator.cancel();
@@ -237,6 +341,20 @@ Future<CompanionAgentMessage?> runCompanionAgentLoop({
       }
       if (!isCurrent()) return null;
       final controlChanged = controlRevision() != before;
+      if (retainToolOutcomes && controlChanged) {
+        // Clear only prior outcomes, including when a new remember keeps text.
+        // The current returned result is added below, with any fresh pending.
+        for (var i = 0; i < exchanges.length; i++) {
+          final exchange = exchanges[i];
+          exchanges[i] = (
+            assistant: exchange.assistant,
+            results: [for (final previous in exchange.results) _withoutRawEraseFields(previous)],
+          );
+        }
+        for (var i = 0; i < results.length; i++) {
+          results[i] = _withoutRawEraseFields(results[i]);
+        }
+      }
       final retireText = controlChanged && (!retainToolOutcomes || _controlRetiresText(call, result));
       if (retireText) {
         if (retainToolOutcomes) {

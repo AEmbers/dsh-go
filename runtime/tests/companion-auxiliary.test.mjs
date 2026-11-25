@@ -20,6 +20,10 @@ async function fixture(t, configure = {}) {
   const listeners = new Map();
   const llm = {
     companionAuxiliaryCapability(provider) { assert.equal(provider, state.selected.provider); return state.supported ? state.generic ? genericCapability : capability : undefined; },
+    async companionScreenCapability(provider, model) {
+      assert.equal(provider, 'screen-provider'); assert.equal(model, 'screen-model');
+      return state.screenSupported ? { ...capability, transientImage: 'jpeg-512-inline' } : undefined;
+    },
     async prepareCompanionAuxiliaryCall(config, signal, observer) {
       state.prepares++; state.config = config; state.signal = signal;
       await state.prepareGate?.promise;
@@ -58,7 +62,11 @@ async function fixture(t, configure = {}) {
     llm,
     connection: { admit: req => req.headers.authorization === 'owner' ? { peer: { principal: { kind: 'owner' } } } :
       req.headers.authorization === 'reader' ? { peer: { principal: { kind: 'reader' } } } : { rejection: 401 } },
-    sessionController: { async resolveAgent(id) { state.resolves++; return id === 'session' ? { agent } : undefined; } },
+    sessionController: { async resolveAgent(id) {
+      state.resolves++;
+      if (state.resolveGate) await state.resolveGate.promise;
+      return id === 'session' ? { agent } : undefined;
+    } },
     agentPresets: { presetForSession: () => state.wrongPreset ? 'other' : FULL_PRESET },
     agents: { get: id => id === 'session' && !state.retired ? agent : undefined },
   }[name]; }, on(name, fn) { listeners.set(name, fn); return () => listeners.delete(name); } };
@@ -81,7 +89,11 @@ async function fixture(t, configure = {}) {
     provider: state.selected.provider, model: state.selected.model, kind: 'extract', system: 'Fixed extraction instructions',
     input: 'A synthetic versioned source with its original time.', maxTokens: 512, ...extra });
   const post = extra => http({ method: 'POST', body: body(extra) });
-  return { state, http, post, body, info, agent, listeners, route, origin };
+  const screenBody = extra => ({ v: 1, instanceId: info.body.instanceId, requestId: 'screen-request',
+    provider: 'screen-provider', model: 'screen-model', kind: 'screen', system: 'Classify this external screen data.',
+    input: 'Synthetic accessibility text.', maxTokens: 220,
+    image: { mediaType: 'image/jpeg', width: 1, height: 1, data: '/9j/wAALCAABAAEBAREA/9k=' }, ...extra });
+  return { state, http, post, body, screenBody, info, agent, listeners, route, origin };
 }
 
 test('owner authentication and exact input validation run before model preparation', async t => {
@@ -97,6 +109,13 @@ test('owner authentication and exact input validation run before model preparati
     const r = await f.http({ method: 'POST', body, type }); assert.equal(r.status, status); assert.equal(r.body.dispatched, false);
   }
   assert.equal(f.state.resolves, baseline); assert.equal(f.state.prepares, 0);
+  for (const auth of ['reader', 'anonymous']) {
+    assert.equal((await f.http({ path: `${PATH}/screen`, method: 'POST', auth, body: f.screenBody() })).body.dispatched, false);
+  }
+  for (const extra of [{ sessionId: 'session' }, { tools: [] }, { image: { mediaType: 'image/jpeg', width: 513, height: 1, data: '/9j/2Q==' } }]) {
+    assert.equal((await f.http({ path: `${PATH}/screen`, method: 'POST', body: f.screenBody(extra) })).status, 400);
+  }
+  assert.equal(f.state.prepares, 0); assert.equal(f.state.invocations, 0);
 });
 
 test('full mode follows the explicit current route and keeps provider raw usage separate from normalized usage', async t => {
@@ -114,6 +133,26 @@ test('full mode follows the explicit current route and keeps provider raw usage 
   assert.deepEqual(Object.keys(f.state.payload), ['system', 'input']);
   assert.deepEqual(f.state.config, { provider: 'selected-provider', model: 'selected-model', reasoningEffort: 'off', maxTokens: 512 });
   assert.equal(f.state.invocations, 1);
+  f.state.screenSupported = true;
+  const resolves = f.state.resolves;
+  const selected = { ...f.state.selected };
+  const screenInfo = await f.http({ path: `${PATH}?kind=screen&provider=screen-provider&model=screen-model&reasoningEffort=off` });
+  assert.equal(screenInfo.body.supported, true); assert.equal(screenInfo.body.kind, 'screen');
+  assert.equal(screenInfo.body.capability.transientImage, 'jpeg-512-inline');
+  const screen = await f.http({ path: `${PATH}/screen`, method: 'POST', body: f.screenBody({ reasoningEffort: 'off' }) });
+  assert.equal(screen.body.at(-1).terminal, 'complete'); assert.equal(screen.body.at(-1).complete, true);
+  assert.equal(screen.body.at(-1).usage.provider, 'screen-provider');
+  assert.equal(screen.body.at(-1).usage.output_tokens, 7);
+  assert.deepEqual(f.state.payload.screenImage, f.screenBody().image);
+  assert.deepEqual(f.state.config, { provider: 'screen-provider', model: 'screen-model', reasoningEffort: 'off', maxTokens: 220 });
+  assert.equal(f.state.resolves, resolves, 'screen classification never resolves a Session');
+  assert.deepEqual(f.state.selected, selected, 'the ordinary conversation selection is untouched');
+  assert.equal(f.state.invocations, 2);
+  f.state.streamError = Object.assign(new Error('synthetic image transport'), { code: 'TRANSPORT' });
+  const failed = await f.http({ path: `${PATH}/screen`, method: 'POST', body: f.screenBody({ requestId: 'screen-failed' }) });
+  assert.equal(failed.body.at(-1).complete, false);
+  assert.equal(failed.body.at(-1).dispatched, true);
+  assert.equal(f.state.invocations, 3, 'an image failure cannot dispatch a text fallback');
 });
 
 test('an absent callable transport and a different requested model never fall back to DeepSeek', async t => {
@@ -125,6 +164,11 @@ test('an absent callable transport and a different requested model never fall ba
   const mismatch = await f.post({ requestId: 'changed-model', model: 'other' });
   assert.equal(mismatch.body.at(-1).dispatched, false);
   assert.equal(mismatch.body.at(-1).error.code, 'companion/auxiliary-selection-changed');
+  assert.equal(f.state.prepares, 0); assert.equal(f.state.invocations, 0);
+  const unavailable = await f.http({ path: `${PATH}?kind=screen&provider=screen-provider&model=screen-model` });
+  assert.equal(unavailable.body.supported, false);
+  const screen = await f.http({ path: `${PATH}/screen`, method: 'POST', body: f.screenBody() });
+  assert.equal(screen.body.at(-1).dispatched, false);
   assert.equal(f.state.prepares, 0); assert.equal(f.state.invocations, 0);
 });
 
@@ -192,13 +236,81 @@ test('a pending request reports unknown, busy rejects another, and model changes
     const last = response.body.at(-1);
     assert.equal(last.complete, false); assert.equal(last.usage.complete, false);
     assert.equal(last.terminal, change === 'cancel' ? 'cancelled' : 'provider_error');
-    if (change === 'model') assert.equal(last.error.code, 'companion/auxiliary-selection-changed');
+    assert.equal(last.error.code, 'companion/auxiliary-selection-changed');
     assert.equal(last.dispatched, true); assert.equal(last.dispatchAtMs, 1795280000123);
     assert.equal(last.usage.start_usage.input_tokens, 51); assert.equal(last.usage.output_tokens, 7);
     assert.equal(g.state.invocations, 1);
     const saved = await g.http({ path: `${PATH}/requests/request?instanceId=${g.info.body.instanceId}` });
     assert.deepEqual(saved.body.finish, last);
   }
+
+  // Hold the actual resolver after acceptance, before record.agent can bind.
+  // A -> B -> A events must latch cancellation even though final values match.
+  const h = await fixture(t);
+  const resolveGate = defer(); h.state.resolveGate = resolveGate;
+  const originalSelection = { ...h.state.selected };
+  const beforeResolve = { resolves: h.state.resolves, prepares: h.state.prepares, invocations: h.state.invocations };
+  const receiptPath = `${PATH}/requests/resolve-aba?instanceId=${h.info.body.instanceId}`;
+  const resolving = h.post({ requestId: 'resolve-aba' });
+  let resolved;
+  try {
+    await until(() => h.state.resolves === beforeResolve.resolves + 1);
+    const accepted = await h.http({ path: receiptPath });
+    assert.equal(accepted.status, 200); assert.equal(accepted.body.phase, 'accepted');
+    assert.equal(accepted.body.dispatched, null); assert.equal(Object.hasOwn(accepted.body, 'finish'), false);
+    assert.equal(h.state.prepares, beforeResolve.prepares); assert.equal(h.state.invocations, beforeResolve.invocations);
+    h.state.selected = { ...originalSelection, model: 'changed-during-resolve' };
+    h.listeners.get('session/event')(h.agent.session, { type: 'model/selection' });
+    h.state.selected = originalSelection;
+    h.listeners.get('session/event')(h.agent.session, { type: 'model/selection' });
+    // abort does not settle the unresolved controller or prove not-sent yet.
+    assert.deepEqual((await h.http({ path: receiptPath })).body, accepted.body);
+    assert.equal(h.state.prepares, beforeResolve.prepares); assert.equal(h.state.invocations, beforeResolve.invocations);
+  } finally {
+    resolveGate.resolve();
+    resolved = await resolving;
+  }
+  h.state.resolveGate = undefined;
+  const cancelled = resolved.body.at(-1);
+  assert.equal(resolved.status, 200); assert.equal(cancelled.terminal, 'cancelled');
+  assert.equal(cancelled.complete, false); assert.equal(cancelled.usage.complete, false);
+  assert.equal(cancelled.error.code, 'companion/auxiliary-selection-changed');
+  assert.equal(cancelled.dispatched, false); assert.equal(cancelled.dispatchAtMs, null);
+  assert.equal(h.state.prepares, beforeResolve.prepares); assert.equal(h.state.invocations, beforeResolve.invocations);
+  const cancelledReceipt = await h.http({ path: receiptPath });
+  assert.equal(cancelledReceipt.body.phase, 'finished'); assert.deepEqual(cancelledReceipt.body.finish, cancelled);
+  const used = await h.post({ requestId: 'resolve-aba' });
+  assert.equal(used.status, 409); assert.equal(used.body.error.code, 'companion/auxiliary-request-used');
+  assert.equal(used.body.dispatched, null); assert.deepEqual(used.body.receipt.finish, cancelled);
+  assert.equal(h.state.resolves, beforeResolve.resolves + 1);
+  const fresh = await h.post({ requestId: 'resolve-after-aba' });
+  assert.equal(fresh.body.at(-1).terminal, 'complete'); assert.equal(fresh.body.at(-1).dispatched, true);
+  assert.equal(h.state.invocations, beforeResolve.invocations + 1);
+
+  // A different Session's event must not cancel this accepted resolver.
+  const j = await fixture(t);
+  const otherGate = defer(); j.state.resolveGate = otherGate;
+  const otherBaseline = { resolves: j.state.resolves, prepares: j.state.prepares, invocations: j.state.invocations };
+  const otherReceiptPath = `${PATH}/requests/resolve-other-event?instanceId=${j.info.body.instanceId}`;
+  const otherPending = j.post({ requestId: 'resolve-other-event' });
+  let otherResponse;
+  try {
+    await until(() => j.state.resolves === otherBaseline.resolves + 1);
+    const accepted = await j.http({ path: otherReceiptPath });
+    assert.equal(accepted.body.phase, 'accepted'); assert.equal(accepted.body.dispatched, null);
+    j.listeners.get('session/event')({ id: 'another-session' }, { type: 'model/selection' });
+    assert.deepEqual((await j.http({ path: otherReceiptPath })).body, accepted.body);
+    assert.equal(j.state.prepares, otherBaseline.prepares); assert.equal(j.state.invocations, otherBaseline.invocations);
+  } finally {
+    otherGate.resolve();
+    otherResponse = await otherPending;
+  }
+  const unaffected = otherResponse.body.at(-1);
+  assert.equal(unaffected.terminal, 'complete'); assert.equal(unaffected.complete, true);
+  assert.equal(unaffected.dispatched, true); assert.equal(j.state.prepares, otherBaseline.prepares + 1);
+  assert.equal(j.state.invocations, otherBaseline.invocations + 1);
+  assert.deepEqual((await j.http({ path: otherReceiptPath })).body.finish, unaffected);
+
 });
 
 test('auth preflight failure is unsent; HTTP error and transport loss after invocation retain a sent unknown-usage receipt', async t => {
@@ -256,6 +368,165 @@ test('tool output is never executed and length termination remains distinguishab
     assert.equal(last.error.code, code); assert.equal(last.terminal, 'provider_error');
     assert.equal(last.dispatched, true); assert.equal(last.usage.output_tokens, 7);
   }
+
+  // Only this phase advertises the new runtime contract. Keep every old
+  // fixture default above, including extract's prohibition on tool output.
+  const g = await fixture(t, { generic: true });
+  const llm = g.agent.ctx.get('llm');
+  const agentCapability = { v: 1, tools: 'return-only', streaming: true };
+  llm.companionAuxiliaryCapability = () => ({ ...genericCapability, agent: agentCapability });
+  const source = { kind: 'model', provider: 'selected-provider', model: 'selected-model' };
+  const completedContent = [
+    { type: 'reasoning', text: 'Private planning.' },
+    { type: 'text', text: 'Planning. Complete details.' },
+    { type: 'tool-call', id: 'phone-call', name: 'sample', arguments: '{"n":1}' },
+  ];
+  llm.prepareCompanionAuxiliaryCall = async (config, signal, observer) => {
+    g.state.prepares++; g.state.config = config; g.state.signal = signal;
+    observer.guard();
+    let message;
+    return { config, get agentMessage() { return message; }, stream: async function* (payload) {
+      g.state.payload = payload;
+      observer.guard(); signal.throwIfAborted();
+      g.state.invocations++;
+      observer.observe({ type: 'handoff', atMs: 1795280000123, boundary: 'adapter-invoked' });
+      yield { type: 'reasoning-delta', index: 0, text: 'Private planning.' };
+      yield { type: 'text-delta', index: 1, text: 'Planning.' };
+      yield { type: 'block-end', index: 1, block: completedContent[1] };
+      yield { type: 'block-start', index: 2, blockType: 'tool-call' };
+      yield { type: 'tool-call-delta', index: 2, id: 'phone-call', name: 'sample', argumentsDelta: '{"n":' };
+      yield { type: 'tool-call-delta', index: 2, id: 'phone-call', argumentsDelta: '1}' };
+      yield { type: 'block-end', index: 2, block: completedContent[2] };
+      yield { type: 'usage', usage: { inputTokens: 12, outputTokens: 4 } };
+      yield { type: 'finish', reason: { kind: 'tool-calls' } };
+      // Same completed neutral shape as the runtime getter; this adapter
+      // double does not stand in for the pinned BlockAssembler/provider hook.
+      message = { id: 'model-message', role: 'assistant', source, content: completedContent };
+    } };
+  };
+  const info = await g.http();
+  assert.deepEqual(info.body.agent, agentCapability);
+  assert.equal(info.body.capability.noTools, true, 'the old auxiliary contract stays separate');
+  const previous = [
+    { type: 'thinking', thinking: 'Earlier private planning.' },
+    { type: 'text', text: 'I will check.' },
+    { type: 'tool_use', id: 'previous-call', name: 'sample', input: { n: 0 } },
+  ];
+  const tools = [{ name: 'sample', description: 'Executed by the phone.',
+    input_schema: { type: 'object', properties: { n: { type: 'integer' } }, required: ['n'] } }];
+  const { input, ...body } = g.body({ requestId: 'agent-round', kind: 'agent', maxTokens: 4000 });
+  const response = await g.http({ method: 'POST', body: { ...body, messages: [
+    { role: 'user', content: 'Check the next item.' },
+    { role: 'assistant', source, content: previous },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'previous-call', is_error: true,
+      content: [{ type: 'text', text: 'Not applied.' }] }] },
+  ], tools } });
+  assert.equal(response.status, 200);
+  assert.equal(g.state.prepares, 1); assert.equal(g.state.invocations, 1);
+  assert.deepEqual(g.state.config, { provider: source.provider, model: source.model, maxTokens: 4000 });
+  assert.equal(Object.hasOwn(g.state.payload, 'input'), false);
+  assert.deepEqual(g.state.payload.tools, [{ name: 'sample', description: 'Executed by the phone.', parameters: tools[0].input_schema }]);
+  assert.deepEqual(g.state.payload.messages.map(({ id, ...message }) => message), [
+    { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Check the next item.' }] },
+    { role: 'assistant', source, content: [
+      { type: 'reasoning', text: 'Earlier private planning.' }, { type: 'text', text: 'I will check.' },
+      { type: 'tool-call', id: 'previous-call', name: 'sample', arguments: '{"n":0}' },
+    ] },
+    { role: 'tool', source: { kind: 'tool', callId: 'previous-call' }, toolCallId: 'previous-call',
+      content: [{ type: 'text', text: 'Not applied.' }], isError: true },
+  ]);
+  assert.deepEqual(response.body.map(event => event.type), ['accepted', 'text', 'runtime-usage', 'message', 'finish']);
+  assert.equal(response.body.find(event => event.type === 'text').text, 'Planning.');
+  assert.deepEqual(response.body.find(event => event.type === 'message').message, {
+    content: [{ type: 'thinking', thinking: 'Private planning.' },
+      { type: 'text', text: 'Planning. Complete details.' },
+      { type: 'tool_use', id: 'phone-call', name: 'sample', input: { n: 1 } }],
+    stopReason: 'tool_use', source,
+  });
+  const finished = response.body.at(-1);
+  assert.equal(finished.terminal, 'tool-calls'); assert.equal(finished.complete, true);
+  assert.equal(finished.dispatched, null); assert.equal(finished.usage.usage_semantics, 'unknown');
+  assert.equal(finished.usage.output_tokens, null);
+  assert.equal(finished.usage.runtime_normalized_usage[0].outputTokens, 4);
+  // The real route returned calls without a Host executor or Session history
+  // access. Actual phone execution/continuation is exercised in the Dart case.
+
+  // Form feeds are data in Agent content and descriptions, including complete
+  // text/reasoning output. They do not loosen the separate strict system rule.
+  const ffContent = [
+    { type: 'reasoning', text: 'Private before\fafter.' },
+    { type: 'text', text: 'Visible before\fafter.' },
+  ];
+  llm.prepareCompanionAuxiliaryCall = async (config, signal, observer) => {
+    g.state.prepares++; g.state.config = config; g.state.signal = signal;
+    observer.guard();
+    let message;
+    return { config, get agentMessage() { return message; }, stream: async function* (payload) {
+      g.state.payload = payload;
+      observer.guard(); signal.throwIfAborted();
+      g.state.invocations++;
+      observer.observe({ type: 'handoff', atMs: 1795280000123, boundary: 'adapter-invoked' });
+      yield { type: 'reasoning-delta', index: 0, text: ffContent[0].text };
+      yield { type: 'text-delta', index: 1, text: ffContent[1].text };
+      yield { type: 'usage', usage: { inputTokens: 8, outputTokens: 3 } };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+      message = { id: 'form-feed-message', role: 'assistant', source, content: ffContent };
+    } };
+  };
+  const ffMessages = [
+    { role: 'user', content: 'History before\fafter.' },
+    { role: 'assistant', source, content: [
+      { type: 'thinking', thinking: 'Earlier private before\fafter.' },
+      { type: 'text', text: 'Earlier answer before\fafter.' },
+      { type: 'tool_use', id: 'ff-string-call', name: 'sample', input: { n: 2 } },
+      { type: 'tool_use', id: 'ff-list-call', name: 'sample', input: { n: 3 } },
+    ] },
+    { role: 'user', content: [
+      { type: 'tool_result', tool_use_id: 'ff-string-call', content: 'String result before\fafter.' },
+      { type: 'tool_result', tool_use_id: 'ff-list-call', content: [{ type: 'text', text: 'List result before\fafter.' }] },
+      { type: 'text', text: 'Current before\fafter.' },
+    ] },
+  ];
+  const ffTools = [{ ...tools[0], description: 'Phone tool before\fafter.' }];
+  const ffBefore = { prepares: g.state.prepares, invocations: g.state.invocations };
+  const formFeed = await g.http({ method: 'POST', body: { ...body, requestId: 'agent-form-feed', messages: ffMessages, tools: ffTools } });
+  assert.equal(formFeed.status, 200); assert.equal(g.state.prepares, ffBefore.prepares + 1);
+  assert.equal(g.state.invocations, ffBefore.invocations + 1);
+  assert.deepEqual(g.state.payload.tools, [{ name: 'sample', description: ffTools[0].description, parameters: tools[0].input_schema }]);
+  assert.deepEqual(g.state.payload.messages.map(({ id, ...message }) => message), [
+    { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'History before\fafter.' }] },
+    { role: 'assistant', source, content: [
+      { type: 'reasoning', text: 'Earlier private before\fafter.' },
+      { type: 'text', text: 'Earlier answer before\fafter.' },
+      { type: 'tool-call', id: 'ff-string-call', name: 'sample', arguments: '{"n":2}' },
+      { type: 'tool-call', id: 'ff-list-call', name: 'sample', arguments: '{"n":3}' },
+    ] },
+    { role: 'tool', source: { kind: 'tool', callId: 'ff-string-call' }, toolCallId: 'ff-string-call',
+      content: [{ type: 'text', text: 'String result before\fafter.' }] },
+    { role: 'tool', source: { kind: 'tool', callId: 'ff-list-call' }, toolCallId: 'ff-list-call',
+      content: [{ type: 'text', text: 'List result before\fafter.' }] },
+    { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Current before\fafter.' }] },
+  ]);
+  assert.equal(formFeed.body.find(event => event.type === 'text').text, ffContent[1].text);
+  assert.deepEqual(formFeed.body.find(event => event.type === 'message').message, {
+    content: [{ type: 'thinking', thinking: ffContent[0].text }, { type: 'text', text: ffContent[1].text }],
+    stopReason: 'end_turn', source,
+  });
+  const ffFinished = formFeed.body.at(-1);
+  assert.equal(ffFinished.terminal, 'complete'); assert.equal(ffFinished.complete, true);
+  assert.equal(ffFinished.dispatched, null); assert.equal(ffFinished.usage.usage_semantics, 'unknown');
+  assert.equal(ffFinished.usage.runtime_normalized_usage[0].outputTokens, 3);
+
+  const invalidSystem = await g.http({ method: 'POST', body: { ...body, requestId: 'agent-system-form-feed',
+    system: 'Strict instructions\fwith a page break.', messages: ffMessages, tools: ffTools } });
+  assert.equal(invalidSystem.status, 400); assert.equal(invalidSystem.body.dispatched, false);
+  assert.equal(invalidSystem.body.error.code, 'companion/auxiliary-invalid-request');
+  const invalidControl = await g.http({ method: 'POST', body: { ...body, requestId: 'agent-forbidden-control',
+    messages: [{ role: 'user', content: 'Still forbidden\u000bcontrol.' }], tools: ffTools } });
+  assert.equal(invalidControl.status, 400); assert.equal(invalidControl.body.dispatched, false);
+  assert.equal(invalidControl.body.error.code, 'companion/auxiliary-invalid-request');
+  assert.equal(g.state.prepares, ffBefore.prepares + 1); assert.equal(g.state.invocations, ffBefore.invocations + 1);
+
 });
 
 // The adapter above is explicit: this proves route behavior and exact payload,

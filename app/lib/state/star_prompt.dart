@@ -229,10 +229,17 @@ class StarPromptController extends Notifier<StarPromptRecord> {
   }
 
   void _watch() {
-    final lifecycle = AppLifecycleListener(onStateChange: (s) => _front(_inFront(s)));
-    ref.onDispose(() {
-      lifecycle.dispose();
+    AppLifecycleListener? lifecycle = AppLifecycleListener(onStateChange: (s) => _front(_inFront(s)));
+    void stop() {
+      lifecycle?.dispose();
+      lifecycle = null;
       _tick?.cancel();
+      _since = null;
+    }
+
+    ref.onDispose(stop);
+    listenSelf((_, record) {
+      if (record.over) stop();
     });
     _front(_inFront(WidgetsBinding.instance.lifecycleState));
   }
@@ -398,7 +405,7 @@ final starPromptSceneProvider = Provider<StarPromptScene>((ref) {
     phoneActive: phone.active,
     phoneLastActive: phone.lastActive,
     voice: ref.watch(voiceInputActiveProvider),
-    composing: draft != null && (draft.text.trim().isNotEmpty || draft.attachments.isNotEmpty),
+    composing: draft != null && (draft.text.trimLeft().isNotEmpty || draft.attachments.isNotEmpty),
   );
 });
 

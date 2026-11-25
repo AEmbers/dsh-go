@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dsh_client/dsh_client.dart';
 import 'package:test/test.dart';
@@ -362,6 +363,7 @@ class _Host {
       cookies.add(request.headers.value(HttpHeaders.cookieHeader));
       hosts.add(request.headers.value(HttpHeaders.hostHeader));
       final text = await utf8.decoder.bind(request).join();
+      texts.add(text);
       bodies.add(text.isEmpty ? null : jsonDecode(text) as Map<String, Object?>);
       await answer(request);
     });
@@ -374,11 +376,20 @@ class _Host {
   final cookies = <String?>[];
   final hosts = <String?>[];
   final bodies = <Map<String, Object?>?>[];
+  final texts = <String>[];
   Map<String, Object?> capability = _capability();
   late Future<void> Function(HttpRequest request) answer = (request) => _json(request, capability);
   Uri get baseUri => Uri.parse('http://127.0.0.1:${server.port}');
   Future<void> close() async {
     await server.close(force: true);
+  }
+}
+
+class _Counted {
+  var calls = 0;
+  Object toJson() {
+    calls++;
+    return 'counted';
   }
 }
 
@@ -453,6 +464,63 @@ void main() {
     await host.close();
   });
 
+  test('Agent input is encoded once and posts the old snapshot bytes', () async {
+    host.capability['agent'] = {'v': 1, 'tools': 'return-only', 'streaming': true};
+    final counted = _Counted();
+    final cap = (await client.readCompanionAuxiliaryCapability(_session))!;
+    const system = '看🌏 "hi"\n\\';
+    final messages = [
+      <String, Object?>{'role': 'user', 'content': '茶🍵'},
+    ];
+    final tools = [
+      {
+        'name': 'lookup',
+        'input_schema': {
+          'enum': [-0.0, 1.5e-9, 1.0, true, null, counted],
+        },
+      },
+    ];
+    final estimate = jsonEncode({'system': system, 'messages': messages, 'tools': tools});
+    final old = jsonEncode(
+      jsonDecode(
+        jsonEncode({
+          'v': 1,
+          'instanceId': cap.instanceId,
+          'requestId': _request,
+          'sessionId': cap.sessionId,
+          'provider': cap.provider,
+          'model': cap.model,
+          'kind': 'agent',
+          'system': system,
+          'messages': messages,
+          'tools': tools,
+          'maxTokens': 800,
+        }),
+      ),
+    );
+    counted.calls = 0;
+    final input = CompanionAgentInput(system: system, messages: messages, tools: tools);
+    expect(input.json, estimate);
+    expect(input.requestBytes(cap, requestId: _request, maxTokens: 800), utf8.encode(old).length);
+    host.answer = (request) => _json(request, _wire('busy')['body'], status: 409);
+    final probe = _Probe();
+    final posted = client.callCompanionAgent(
+      cap,
+      requestId: _request,
+      input: input,
+      maxTokens: 800,
+      abort: DshHttpAbort(),
+      onDispatchUncertain: probe.uncertain,
+      onSent: probe.sent,
+      onText: (_) {},
+      onUsage: probe.received,
+    );
+    messages.single['content'] = 'changed';
+    await expectLater(posted, throwsA(isA<CompanionAuxiliaryFailure>()));
+    expect(host.texts.last, old);
+    expect(counted.calls, 1);
+  });
+
   test('actual HTTP uses one frozen selection, cookie and exact no-tools DTO', () async {
     final cap = (await client.readCompanionAuxiliaryCapability(_session))!;
     final probe = _Probe();
@@ -501,6 +569,87 @@ void main() {
       'input': 'synthetic conversation batch',
       'maxTokens': 1400,
     });
+    http.onOpen = null;
+    const selected = ModelSelection(provider: 'screen-provider', model: 'screen-model', reasoningEffort: 'off');
+    host.capability = {
+      ..._capability(),
+      'kind': 'screen',
+      'provider': selected.provider,
+      'model': selected.model,
+      'reasoningEffort': selected.reasoningEffort,
+      'capability': {...(_capability()['capability']! as Map), 'transientImage': 'jpeg-512-inline'},
+    };
+    host.answer = (request) => _json(request, host.capability);
+    final screen = (await client.readCompanionScreenCapability(selected))!;
+    expect(screen.supported, isTrue);
+    expect(host.paths.last.queryParameters, {
+      'kind': 'screen',
+      'provider': selected.provider,
+      'model': selected.model,
+      'reasoningEffort': 'off',
+    });
+    final pixels = Uint8List.fromList(base64Decode('/9j/wAALCAABAAEBAREA/9k='));
+    final image = CompanionScreenImage.fromNative({
+      'mime_type': 'image/jpeg',
+      'width': 1,
+      'height': 1,
+      'bytes': pixels,
+    })!;
+    expect(
+      CompanionScreenImage.fromNative({'mime_type': 'image/jpeg', 'width': 513, 'height': 1, 'bytes': pixels}),
+      isNull,
+    );
+    pixels.fillRange(0, pixels.length, 0);
+    final screenProbe = _Probe();
+    http.onOpen = (method) {
+      expect(method, 'POST');
+      expect(screenProbe.events, ['uncertain']);
+      screenProbe.events.add('http-open');
+    };
+    host.answer = (request) => _frames(request, [
+      _accepted(host.capability),
+      _dispatch(),
+      {'type': 'text', 'requestId': _request, 'text': '{"scene":"reading"}'},
+      _finish(host.capability),
+    ]);
+    final observed = await client.callCompanionScreen(
+      screen,
+      requestId: _request,
+      system: 'Classify external screen data.',
+      input: 'Synthetic accessibility text.',
+      image: image,
+      maxTokens: 220,
+      abort: DshHttpAbort(),
+      onDispatchUncertain: screenProbe.uncertain,
+      onSent: screenProbe.sent,
+      onUsage: screenProbe.received,
+    );
+    expect(observed.terminal, 'complete');
+    expect(observed.complete, isTrue);
+    expect(screenProbe.events, ['uncertain', 'http-open', 'sent', 'usage']);
+    expect(screenProbe.usage.single['provider'], selected.provider);
+    expect(screenProbe.usage.single['input_uncached'], 7);
+    expect(host.paths.last.path, '$_path/screen');
+    expect(host.bodies.last, {
+      'v': 1,
+      'instanceId': _instance,
+      'requestId': _request,
+      'kind': 'screen',
+      'provider': selected.provider,
+      'model': selected.model,
+      'reasoningEffort': 'off',
+      'system': 'Classify external screen data.',
+      'input': 'Synthetic accessibility text.',
+      'maxTokens': 220,
+      'image': {'mediaType': 'image/jpeg', 'width': 1, 'height': 1, 'data': '/9j/wAALCAABAAEBAREA/9k='},
+    });
+    expect(
+      host.paths,
+      hasLength(4),
+      reason: 'one discovery and one POST per independent attempt, with no Session route',
+    );
+    expect(host.cookies, everyElement('dsh-auth-test=fixture-cookie'));
+    expect(host.hosts, everyElement(host.baseUri.authority));
   });
 
   test('generic callable route keeps dispatch and raw unknown, normalized separate', () async {
@@ -531,6 +680,78 @@ void main() {
     ]);
     expect(host.bodies.last?['provider'], 'selected-provider');
     expect(host.bodies.last?['model'], 'selected-model');
+
+    // The private image route can prove fetch while its adapter still exposes
+    // only runtime-normalized usage. It does not become DeepSeek raw usage.
+    const selected = ModelSelection(provider: 'selected-provider', model: 'selected-model');
+    host.capability = {
+      ..._capability(generic: true),
+      'kind': 'screen',
+      'capability': {
+        ...(_capability(generic: true)['capability']! as Map),
+        'physicalDispatch': 'fetch-invoked',
+        'maxPhysicalRequests': 1,
+        'transientImage': 'jpeg-512-inline',
+      },
+    };
+    host.answer = (request) => _json(request, host.capability);
+    final screen = (await client.readCompanionScreenCapability(selected))!;
+    expect(screen.supported, isTrue);
+    final image = CompanionScreenImage.fromNative({
+      'mime_type': 'image/jpeg',
+      'width': 1,
+      'height': 1,
+      'bytes': base64Decode('/9j/wAALCAABAAEBAREA/9k='),
+    })!;
+    const normalized = {
+      'inputTokens': 10,
+      'outputTokens': 5,
+      'totalTokens': 15,
+      'reported': {'inputTokens': 10, 'outputTokens': 5, 'cacheReadTokens': 0, 'cacheWriteTokens': 0},
+    };
+    final imageUsage = {
+      ..._usage(host.capability, generic: true),
+      'http_status': 200,
+      'host_adapter_handoff_at_ms': null,
+      'runtime_normalized_usage': [normalized],
+    };
+    final imageProbe = _Probe();
+    host.answer = (request) => _frames(request, [
+      _accepted(host.capability),
+      _dispatch(),
+      {'type': 'runtime-usage', 'requestId': _request, 'semantics': 'runtime-normalized', 'usage': normalized},
+      {'type': 'text', 'requestId': _request, 'text': '{"scene":"reading"}'},
+      {..._finish(host.capability, generic: true), 'httpStatus': 200, 'usage': imageUsage},
+    ]);
+    final observed = await client.callCompanionScreen(
+      screen,
+      requestId: _request,
+      system: 'Classify external screen data.',
+      input: 'Synthetic accessibility text.',
+      image: image,
+      maxTokens: 220,
+      abort: DshHttpAbort(),
+      onDispatchUncertain: imageProbe.uncertain,
+      onSent: imageProbe.sent,
+      onUsage: imageProbe.received,
+    );
+    expect(observed.complete, isTrue);
+    expect(observed.dispatched, isTrue);
+    expect(observed.httpStatus, 200);
+    expect(observed.text, '{"scene":"reading"}');
+    expect(imageProbe.events, ['uncertain', 'sent', 'usage']);
+    expect(imageProbe.usage.single, {...imageUsage, 'host_dispatch_at_ms': _hostTime});
+    expect(observed.usage['start_usage'], isNull);
+    expect(observed.usage['final_usage'], isNull);
+    expect(observed.usage['input_uncached'], isNull);
+    expect(observed.usage['output_tokens'], isNull);
+    expect(observed.usage['usage_semantics'], 'unknown');
+    expect(observed.usage['runtime_normalized_usage'], [normalized]);
+    expect(host.paths.map((uri) => uri.path), [_path, _path, _path, '$_path/screen']);
+    expect(host.bodies.last!['provider'], selected.provider);
+    expect(host.bodies.last!['model'], selected.model);
+    expect(host.bodies.last!.containsKey('sessionId'), isFalse);
+    expect(host.bodies.last!['image'], image.toJson());
   });
 
   test('followup uses the same frozen selected provider and returns its exact NDJSON receipt', () async {
@@ -648,6 +869,51 @@ void main() {
     expect(probe.events, ['uncertain', 'usage']);
     expect(probe.usage.single['host_dispatch_at_ms'], isNull);
     expect(host.paths, hasLength(2));
+    host.capability = {
+      ..._capability(generic: true),
+      'kind': 'screen',
+      'capability': {
+        ...(_capability(generic: true)['capability']! as Map),
+        'physicalDispatch': 'fetch-invoked',
+        'maxPhysicalRequests': 1,
+        'transientImage': 'jpeg-512-inline',
+      },
+    };
+    host.answer = (request) => _json(request, host.capability);
+    final screen = (await client.readCompanionScreenCapability(
+      const ModelSelection(provider: 'selected-provider', model: 'selected-model'),
+    ))!;
+    final image = CompanionScreenImage.fromNative({
+      'mime_type': 'image/jpeg',
+      'width': 1,
+      'height': 1,
+      'bytes': base64Decode('/9j/wAALCAABAAEBAREA/9k='),
+    })!;
+    final imageProbe = _Probe();
+    host.answer = (request) => _frames(request, [_accepted(host.capability)]);
+    await expectLater(
+      client.callCompanionScreen(
+        screen,
+        requestId: _request,
+        system: 'Classify screen data.',
+        input: 'External text.',
+        image: image,
+        maxTokens: 220,
+        abort: DshHttpAbort(),
+        onDispatchUncertain: imageProbe.uncertain,
+        onSent: imageProbe.sent,
+        onUsage: imageProbe.received,
+      ),
+      throwsA(isA<CompanionAuxiliaryFailure>().having((e) => e.notSent, 'notSent', false)),
+    );
+    expect(imageProbe.events, ['uncertain', 'usage']);
+    expect(imageProbe.usage.single['host_dispatch_at_ms'], isNull);
+    expect(imageProbe.usage.single['final_usage'], isNull);
+    expect(imageProbe.usage.single['input_uncached'], isNull);
+    expect(imageProbe.usage.single['complete'], isFalse);
+    expect(imageProbe.usage.single['proxy_finish_observed'], isFalse);
+    expect(host.paths, hasLength(4), reason: 'no repeated image POST or automatic text fallback');
+    expect(host.paths.last.path, '$_path/screen');
   });
 
   test('explicit current preflight false is a result, never an inferred timeout', () async {
@@ -857,6 +1123,51 @@ void main() {
     await expectLater(_call(client, cap, probe), throwsA(isA<CompanionAuxiliaryFailure>()));
     expect(probe.events, isEmpty);
     expect(host.paths, hasLength(1));
+    host.capability = {...host.capability, 'kind': 'screen'};
+    const selected = ModelSelection(provider: 'deepseek', model: 'deepseek-flash');
+    final screen = (await client.readCompanionScreenCapability(selected))!;
+    expect(screen.supported, isFalse);
+    final image = CompanionScreenImage.fromNative({
+      'mime_type': 'image/jpeg',
+      'width': 1,
+      'height': 1,
+      'bytes': base64Decode('/9j/wAALCAABAAEBAREA/9k='),
+    })!;
+    await expectLater(
+      client.callCompanionScreen(
+        screen,
+        requestId: _request,
+        system: 'Classify screen data.',
+        input: 'Text.',
+        image: image,
+        maxTokens: 220,
+        abort: DshHttpAbort(),
+        onDispatchUncertain: probe.uncertain,
+        onSent: probe.sent,
+        onUsage: probe.received,
+      ),
+      throwsA(isA<CompanionAuxiliaryFailure>().having((e) => e.notSent, 'notSent', true)),
+    );
+    expect(probe.events, isEmpty);
+    expect(host.paths, hasLength(2));
+    expect(host.bodies, everyElement(isNull));
+
+    // Allowing unavailable raw usage must not admit an image route whose
+    // physical dispatch is still unknown, even when its other fields match.
+    host.capability = {
+      ..._capability(),
+      'kind': 'screen',
+      'capability': {
+        ...(_capability()['capability']! as Map),
+        'rawUsage': 'unavailable',
+        'physicalDispatch': 'unknown',
+        'transientImage': 'jpeg-512-inline',
+      },
+    };
+    await expectLater(client.readCompanionScreenCapability(selected), throwsA(isA<DshProtocolException>()));
+    expect(probe.events, isEmpty);
+    expect(host.paths, hasLength(3));
+    expect(host.bodies, everyElement(isNull));
   });
 
   test('an older unclaimed route returns null without a fallback request', () async {
@@ -881,7 +1192,11 @@ void main() {
     }, status: 404);
     await expectLater(
       client.readCompanionAuxiliaryCapability(_session),
-      throwsA(isA<DshHttpException>().having((e) => e.statusCode, 'status', 404)),
+      throwsA(
+        isA<CompanionAuxiliaryFailure>()
+            .having((e) => e.httpStatus, 'status', 404)
+            .having((e) => e.code, 'code', 'companion/auxiliary-invalid-request'),
+      ),
     );
     expect(host.paths, hasLength(1));
   });

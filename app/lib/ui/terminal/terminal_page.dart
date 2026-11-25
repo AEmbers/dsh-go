@@ -59,6 +59,7 @@ class TerminalPage extends ConsumerStatefulWidget {
 class _TerminalPageState extends ConsumerState<TerminalPage> {
   final _focus = FocusNode(debugLabel: 'terminal');
   final _modifiers = TerminalModifiers();
+  final _screen = GlobalKey<TerminalScreenState>();
   late final AppLifecycleListener _lifecycle;
 
   NotifierProvider<TerminalWorkspace, TerminalWorkspaceState> get _provider =>
@@ -80,14 +81,19 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
 
   // ── Actions ──
 
-  Future<void> _showActions(TerminalTab tab) {
+  Future<void> _showActions(TerminalTab tab) async {
     final workspace = ref.read(_provider.notifier);
-    return showAppSheet<void>(
+    final canInput = ref.read(_provider).selected?.id == tab.id && tab.phase == TerminalPhase.live && tab.writable;
+    late Future<Object?> sheetClosed;
+    final input = await showAppSheet<_TerminalInputAction>(
       context,
       isScrollControlled: true,
+      onRouteChanged: (route, _) => sheetClosed = route.completed,
       builder: (sheet) => SheetNavigator(
         root: (_) => _TabActions(
           title: tab.title.isEmpty ? appL10n.botsTerminal : tab.title,
+          onKeyboard: canInput ? () => Navigator.of(sheet).pop(_TerminalInputAction.keyboard) : null,
+          onPaste: canInput ? () => Navigator.of(sheet).pop(_TerminalInputAction.paste) : null,
           onRename: () {
             Navigator.of(sheet).pop();
             unawaited(_rename(tab));
@@ -104,6 +110,15 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
         ),
       ),
     );
+    if (input == null) return;
+    await sheetClosed;
+    if (!mounted || !identical(ref.read(_provider).selected?.terminal, tab.terminal)) return;
+    switch (input) {
+      case _TerminalInputAction.keyboard:
+        _screen.currentState?.showKeyboard();
+      case _TerminalInputAction.paste:
+        await _screen.currentState?.pasteClipboard();
+    }
   }
 
   Future<void> _rename(TerminalTab tab) async {
@@ -200,7 +215,13 @@ class _TerminalPageState extends ConsumerState<TerminalPage> {
       );
     } else {
       body = TerminalCardFrame(
-        child: TerminalScreen(sessionId: widget.sessionId, tab: selected, focusNode: _focus, modifiers: _modifiers),
+        child: TerminalScreen(
+          key: _screen,
+          sessionId: widget.sessionId,
+          tab: selected,
+          focusNode: _focus,
+          modifiers: _modifiers,
+        ),
       );
     }
 
@@ -410,10 +431,14 @@ class _TabsRow extends StatelessWidget {
   }
 }
 
-/// 重命名 · 新建终端(选 Shell) · 关闭终端.
+enum _TerminalInputAction { keyboard, paste }
+
+/// 输入 · 重命名 · 新建终端(选 Shell) · 关闭终端.
 class _TabActions extends StatelessWidget {
   const _TabActions({
     required this.title,
+    required this.onKeyboard,
+    required this.onPaste,
     required this.onRename,
     required this.loadShells,
     required this.onNew,
@@ -421,6 +446,8 @@ class _TabActions extends StatelessWidget {
   });
 
   final String title;
+  final VoidCallback? onKeyboard;
+  final VoidCallback? onPaste;
   final VoidCallback onRename;
   final Future<List<TerminalShell>> Function() loadShells;
   final ValueChanged<TerminalShell?> onNew;
@@ -439,6 +466,19 @@ class _TabActions extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SheetTitleBar(title),
+            if (onKeyboard != null)
+              SheetGroup(
+                margin: _margin,
+                children: [
+                  ListPageRow(
+                    icon: AppIcons.terminal,
+                    title: l10n.botsTerminalShowKeyboard,
+                    chevron: false,
+                    onTap: onKeyboard,
+                  ),
+                  ListPageRow(icon: AppIcons.paste, title: l10n.commonPaste, chevron: false, onTap: onPaste),
+                ],
+              ),
             SheetGroup(
               margin: _margin,
               children: [

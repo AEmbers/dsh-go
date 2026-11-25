@@ -3574,6 +3574,9 @@ class L10nEn extends L10n {
   String get botsTerminal => 'Terminal';
 
   @override
+  String get botsTerminalShowKeyboard => 'Show keyboard';
+
+  @override
   String get botsTerminalRename => 'Rename terminal';
 
   @override
@@ -5614,6 +5617,44 @@ class L10nEn extends L10n {
   }
 
   @override
+  String get companionPhoneConnectionReplaced =>
+      'A newer phone connection took over this session. Return to the current companion session and try again.';
+
+  @override
+  String get companionPhoneSessionUnavailable =>
+      'The host cannot find this companion session, or its preset has changed. Reopen the companion room.';
+
+  @override
+  String get companionPhoneToolsConflict =>
+      'The host could not connect the phone tools for this turn. Reopen the current companion session and try again.';
+
+  @override
+  String get companionHostSelectionChanged =>
+      'The host session selection changed. Check the current session before sending again.';
+
+  @override
+  String get companionLocalDisconnected => 'The on-device engine is disconnected. Check that it is running.';
+
+  @override
+  String get companionLocalUnavailable =>
+      'The on-device engine cannot open the companion session. Check the engine and its companion preset.';
+
+  @override
+  String get companionLocalModelUnavailable =>
+      'The on-device engine cannot use this companion’s previously selected model. Check its model settings.';
+
+  @override
+  String get companionContinuedOnPhone => 'The host has not received this message. This turn will use light mode.';
+
+  @override
+  String get companionLogOnDevice => 'On-device history';
+
+  @override
+  String companionSessionUsingTool(String tool) {
+    return 'Using $tool';
+  }
+
+  @override
   String get companionTitle => 'Companion room';
 
   @override
@@ -5634,6 +5675,46 @@ class L10nEn extends L10n {
   String get companionVoice => 'Voice';
 
   @override
+  String get companionSystemAssistant => 'System digital assistant';
+
+  @override
+  String get companionAssistantChoose => 'Choose the default assistant';
+
+  @override
+  String get companionAssistantChooseHint =>
+      'Choose DSH Go Companion in Android Settings, then use your phone\'s assistant gesture or button.';
+
+  @override
+  String get companionAssistantSelected => 'Companion is the default. Open Android Settings here to switch assistants.';
+
+  @override
+  String get companionAssistantSettingsMissing =>
+      'The assistant picker is unavailable. Search for the default digital assistant in Android Settings.';
+
+  @override
+  String get companionAssistantSharePage => 'Include page text on wake';
+
+  @override
+  String get companionAssistantSharePageHint =>
+      'Send text Android makes available to the companion model with this turn. You can remove it before sending.';
+
+  @override
+  String get companionAssistantPageAttached => 'Page text attached';
+
+  @override
+  String get companionAssistantCalendarAccess => 'Allow calendar access';
+
+  @override
+  String get companionAssistantCalendarHint =>
+      'Let the companion and phone tools read visible events. Results are sent to the active model.';
+
+  @override
+  String get companionAssistantCalendarAllowed => 'Calendar access is on. Tap to manage it in Android app permissions.';
+
+  @override
+  String get companionAssistantAppPermissions => 'Open Android app permissions';
+
+  @override
   String get companionStop => 'Ask her to stop';
 
   @override
@@ -5648,6 +5729,10 @@ class L10nEn extends L10n {
   @override
   String get companionAgentRetryClosed =>
       'I may have already started on that, and I don\'t want to do it twice. Take a look in Tasks, then tell me whether to carry on?';
+
+  @override
+  String get companionPhoneRunStopped =>
+      'The phone work stopped partway, so I paused rather than repeat a step. Check the phone as it is now, and tell me if I should carry on.';
 
   @override
   String get companionLogTitle => 'Log';
@@ -5834,6 +5919,9 @@ class L10nEn extends L10n {
   String get companionShake3 => 'Keep that up and I\'ll start blowing bubbles!';
 
   @override
+  String get companionShakeDizzy => 'My head is spinning…';
+
+  @override
   String get companionStatusIdle => 'Daydreaming';
 
   @override
@@ -6014,7 +6102,15 @@ class L10nEn extends L10n {
 
   @override
   String get companionNotConnectedTryLight =>
-      'I can\'t reach the host right now. If you just want to chat, switch to Light in the menu at the top right.';
+      'I can\'t reach your computer right now. Check the connection, or switch to Light in How she talks.';
+
+  @override
+  String get companionHostModelUnavailable =>
+      'There isn\'t a model ready on your computer yet. Choose one so we can talk, or switch to Light in How she talks.';
+
+  @override
+  String get companionHostUnavailable =>
+      'I can\'t start this chat through your computer yet. Check the connection and updates, or switch to Light in How she talks.';
 
   @override
   String get companionMenuRestartLightHint => 'Start a new conversation and keep earlier records';
@@ -6793,20 +6889,16 @@ class L10nEn extends L10n {
   String get companionReminderSecond => 'The second one';
 
   @override
-  String get companionReminderExactMissing =>
-      'Your phone won\'t let me remind you on the dot yet, so this isn\'t set. Turn on “Alarms & reminders” in system settings.';
-
-  @override
   String get companionReminderNotificationsMissing =>
-      'Notifications are off, so this isn\'t set yet. Turn them on in system settings.';
+      'It\'s set, but notifications are off, so I can\'t reach you when it\'s time. Turn them on in system settings.';
 
   @override
   String get companionReminderChannelMissing =>
-      'Reminder notifications are turned off, so this isn\'t set yet. Turn them on in system settings.';
+      'It\'s set, but reminder notifications are turned off, so I can\'t reach you when it\'s time. Turn them on in system settings.';
 
   @override
   String get companionReminderGroupMissing =>
-      'The notification group for reminders is turned off, so this isn\'t set yet. Turn it on in system settings.';
+      'It\'s set, but the notification group for reminders is turned off, so I can\'t reach you when it\'s time. Turn it on in system settings.';
 
   @override
   String get companionReminderTimePassed => 'That time has already passed, so I didn\'t ring late.';
@@ -7837,7 +7929,7 @@ class L10nEn extends L10n {
 
   @override
   String get companionScreenHint =>
-      'She glances at the screen now and then and only speaks up when something is worth saying; nothing she sees is kept';
+      'She watches the screen with you and speaks up when something catches her eye; the screen itself is not kept, only her last few remarks';
 
   @override
   String get companionScreenNeedsAccess =>
@@ -7845,6 +7937,34 @@ class L10nEn extends L10n {
 
   @override
   String get companionScreenAllowProjection => 'Allow screen recording';
+
+  @override
+  String get companionScreenVision => 'Allow screen images';
+
+  @override
+  String get companionScreenVisionHint =>
+      'Images are checked for privacy with on-device text recognition (OCR) first, so it needs to be on. Up to 512 px on the longest side, never saved';
+
+  @override
+  String get companionScreenVisionTextOnly =>
+      'This capture method only reads text; images need accessibility capture with on-device text recognition on';
+
+  @override
+  String get companionScreenVisionModel => 'Model for screen images';
+
+  @override
+  String get companionScreenVisionChoose => 'Choose a model that accepts images';
+
+  @override
+  String get companionScreenVisionAvailable =>
+      'The selected model can see images; they\'re sent only while on-device text recognition is on, and never saved';
+
+  @override
+  String get companionScreenVisionChecking => 'Checking the selected model; text only for now';
+
+  @override
+  String get companionScreenVisionUnavailable =>
+      'This connection or model can\'t take images, so screen watching uses text';
 
   @override
   String get companionScreenFrequency => 'How often she speaks';
@@ -7868,11 +7988,196 @@ class L10nEn extends L10n {
   String get companionScreenChattyHint => 'Talks with you more often';
 
   @override
+  String get companionScreenLive => 'Live';
+
+  @override
+  String get companionScreenLiveHint => 'Keeps watching and can speak up several times a minute';
+
+  @override
+  String get companionScreenPerHour => 'Most lines an hour';
+
+  @override
+  String get companionScreenPerHourNone => 'No limit';
+
+  @override
   String get companionScreenUsageAccess => 'Let her know which app you\'re using';
 
   @override
   String companionScreenCost(String amount) {
     return 'About ¥$amount today';
+  }
+
+  @override
+  String get companionNotices => 'She keeps an eye on your notifications';
+
+  @override
+  String get companionNoticesHint =>
+      'When an app you pick gets a notification, she takes a look and only speaks up if it matters';
+
+  @override
+  String get companionNoticesNeedsAccess => 'One more step: let DSH Go read notifications';
+
+  @override
+  String get companionNoticesAllow => 'Allow';
+
+  @override
+  String get companionNoticesApps => 'Apps she looks at';
+
+  @override
+  String get companionNoticesAppsEmpty => 'Once this is on, apps that send you notifications show up here';
+
+  @override
+  String companionNoticesAppCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count in the last 7 days',
+      one: '1 in the last 7 days',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get companionNoticesQuiet => 'No notifications lately';
+
+  @override
+  String companionNoticesToday(int received, int said) {
+    String _temp0 = intl.Intl.pluralLogic(said, locale: localeName, other: '$said times', one: 'once');
+    return '$received came in today · she spoke up $_temp0';
+  }
+
+  @override
+  String get companionNoticesFooter =>
+      'Notifications go to the model you set up for her (DeepSeek for now), and only from the apps you pick. The text itself isn\'t kept, only the few notes she makes, which you can see and delete on the memory page; this phone also keeps counts, usage and markers that stop repeats. She doesn\'t look while the phone is locked.';
+
+  @override
+  String get companionNoticesFailed => 'That didn\'t go through; try again';
+
+  @override
+  String get companionNoticeLevelOff => 'Off';
+
+  @override
+  String get companionNoticeLevelOffHint => 'She doesn\'t read this app\'s notifications';
+
+  @override
+  String get companionNoticeLevelGlance => 'Glance';
+
+  @override
+  String get companionNoticeLevelGlanceHint => 'Only to decide whether to tell you; forgotten right after';
+
+  @override
+  String get companionNoticeLevelRemember => 'Remember';
+
+  @override
+  String get companionNoticeLevelRememberHint => 'News worth keeping, she notes down';
+
+  @override
+  String get companionMemoryAll => 'All';
+
+  @override
+  String get companionMemoryFromNotices => 'From notifications';
+
+  @override
+  String get companionMemoryNoticesClear => 'Clear all';
+
+  @override
+  String get companionMemoryNoticesClearTitle => 'Forget what she saw in notifications?';
+
+  @override
+  String get companionMemoryNoticesClearBody =>
+      'Every note she made from notifications is deleted, and the same things won\'t be noted again.';
+
+  @override
+  String get companionPanelCompany => 'Company';
+
+  @override
+  String get companionPanelHer => 'Her';
+
+  @override
+  String get companionPanelTalk => 'Conversation';
+
+  @override
+  String get companionPanelMore => 'More';
+
+  @override
+  String get companionDrawerHere => 'Always here';
+
+  @override
+  String get companionDrawerRoom => 'Companion room';
+
+  @override
+  String get companionTabRoom => 'Room';
+
+  @override
+  String get companionTabMemory => 'Memories';
+
+  @override
+  String get companionTabTasks => 'Errands';
+
+  @override
+  String get companionTabHer => 'Her';
+
+  @override
+  String companionDrawerReminderToday(String time) {
+    return 'Reminder at $time';
+  }
+
+  @override
+  String companionDrawerReminderTomorrow(String time) {
+    return 'Tomorrow $time';
+  }
+
+  @override
+  String companionDrawerReminderLater(String date) {
+    return 'Reminder $date';
+  }
+
+  @override
+  String companionRawEraseAsk(String quote) {
+    return 'Erase the original words too — “$quote”? It can\'t be undone.';
+  }
+
+  @override
+  String companionRawEraseAskMany(String quote, int count) {
+    return 'Erase the original words too — “$quote” and $count lines in all? It can\'t be undone.';
+  }
+
+  @override
+  String get companionRawEraseYes => 'Erase';
+
+  @override
+  String get companionRawEraseNo => 'Keep';
+
+  @override
+  String get companionRawErased => 'Done, the original words are gone too.';
+
+  @override
+  String get companionRawKept => 'Okay, the original words stay.';
+
+  @override
+  String get companionRawEraseGone => 'Too late this time; the original words are still here.';
+
+  @override
+  String get companionSetupWorkshop => 'Find one in the Workshop';
+
+  @override
+  String get companionRosterTitle => 'Companions';
+
+  @override
+  String get companionRosterHere => 'In the room';
+
+  @override
+  String get companionRosterAdd => 'Add a companion';
+
+  @override
+  String get companionRosterBring => 'Bring her into the room';
+
+  @override
+  String get companionRosterRemove => 'Remove from this phone';
+
+  @override
+  String companionRosterRemoveConfirm(String name) {
+    return 'Remove “$name” from this phone? Her files are deleted; memories and reminders stay.';
   }
 
   @override
@@ -15492,108 +15797,227 @@ class L10nEn extends L10n {
   String get phoneKeepFailed => 'Couldn’t reconnect. Tries again when you open the app or start a task.';
 
   @override
-  String get phoneSkillSectionTitle => 'Completed tasks and skills';
+  String get phoneSkillsTitle => 'Phone skills';
 
   @override
-  String get phoneSkillAskAfterSuccess => 'Ask to save a skill after a successful task';
+  String get phoneSkillsSummaryNone => 'Things DSH gets done become skills here';
 
   @override
-  String get phoneSkillAskAfterSuccessHint =>
-      'Off by default. A newly completed task asks once while this page is visible. You can also choose a task manually.';
-
-  @override
-  String phoneSkillTask(int taskId, int steps) {
-    return 'Task $taskId · $steps steps';
+  String phoneSkillsSummary(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count skills learned',
+      one: '1 skill learned',
+    );
+    return '$_temp0';
   }
 
   @override
-  String get phoneSkillCandidateHint =>
-      'Check the actual result first; successful tool calls do not prove that your goal was achieved.';
-
-  @override
-  String get phoneSkillSaveAction => 'Save as a skill';
-
-  @override
-  String get phoneSkillConfirmGoal => 'Did this task achieve your goal?';
-
-  @override
-  String get phoneSkillConfirmGoalBody =>
-      'Check the actual result. Your confirmation creates a draft that you can review and edit before saving.';
-
-  @override
-  String get phoneSkillGoalDone => 'Goal achieved · Review draft';
-
-  @override
-  String get phoneSkillPrivacyHint =>
-      'The draft stays on this device. Do not enter passwords, keys, or verification codes. In this version, free text becomes parameters; removing or reordering steps is kept. Review the final preview.';
-
-  @override
-  String get phoneSkillGoal => 'Goal';
-
-  @override
-  String get phoneSkillPrerequisites => 'Requirements (app, version, sign-in state)';
-
-  @override
-  String phoneSkillStep(int number) {
-    return 'Original step $number';
+  String phoneSkillsSummaryDrafts(int count, int drafts) {
+    String _temp0 = intl.Intl.pluralLogic(count, locale: localeName, other: '$count skills', one: '1 skill');
+    return '$_temp0 · $drafts to review';
   }
 
   @override
-  String get phoneSkillCheckpoint => 'What should appear after this step';
+  String get phoneSkillsLearn => 'Learn from what DSH does';
 
   @override
-  String get phoneSkillMoveUp => 'Move step up';
+  String get phoneSkillsLearnHint => 'Tasks that work out become drafts; DSH uses one only after you accept it';
 
   @override
-  String get phoneSkillMoveDown => 'Move step down';
+  String get phoneSkillsLearnOffHint => 'While off, no new drafts; accepted skills still work';
 
   @override
-  String get phoneSkillUpdatePreview => 'Update the redacted preview';
+  String get phoneSkillsTabMine => 'My skills';
 
   @override
-  String get phoneSkillPreviewTitle => 'Complete content to be saved';
+  String phoneSkillsTabDrafts(int count) {
+    return 'To review $count';
+  }
 
   @override
-  String get phoneSkillParameterizedHint =>
-      'Free text has been replaced with parameters to fill in and check when using this skill.';
+  String get phoneSkillsTabDraftsNone => 'To review';
 
   @override
-  String get phoneSkillFinalConfirmation =>
-      'I have reviewed the complete current preview and agree to save this version.';
+  String get phoneSkillsEmpty =>
+      'No skills yet. When phone control gets something done, DSH drafts a skill for you to accept.';
 
   @override
-  String get phoneSkillSavedBody =>
-      'The file was written to the local skills directory. The engine’s refreshed skill list has not been verified; check the Skills page.';
+  String get phoneSkillsDraftsEmpty => 'Nothing to review';
 
   @override
-  String get phoneSkillWriting => 'Writing the skill';
+  String get phoneSkillsFootnote =>
+      'A skill is a how-to note for DSH: next time it does the same kind of thing, it reads the note first. The more it\'s used, the better DSH gets.';
 
   @override
-  String get phoneSkillCannotCancel =>
-      'The write may have reached its commit stage and cannot be guaranteed to cancel. Closing only closes this page; a committed file will still be saved.';
+  String phoneSkillStateActive(int uses) {
+    String _temp0 = intl.Intl.pluralLogic(
+      uses,
+      locale: localeName,
+      other: 'In use · used $uses times',
+      one: 'In use · used once',
+    );
+    return '$_temp0';
+  }
 
   @override
-  String get phoneSkillKeepWaiting => 'Keep viewing';
+  String get phoneSkillStateTrial => 'On trial · not proven yet';
 
   @override
-  String get phoneSkillCheckWrite => 'Check write result';
+  String get phoneSkillStateSuspended => 'Turned off';
 
   @override
-  String get phoneSkillStale => 'This draft is no longer current. Close it and choose the task again.';
+  String get phoneSkillStateSuspendedMisses => 'Turned off · not working lately';
 
   @override
-  String get phoneSkillSensitive => 'The edit contains sensitive content. Remove it before updating the preview.';
+  String get phoneSkillSourceWritten => 'Written at your request';
 
   @override
-  String get phoneSkillInvalid =>
-      'The edit or step order exceeds the limits. Shorten the text and keep at least one step.';
+  String get phoneSkillUse => 'Use this skill';
 
   @override
-  String get phoneSkillWriteFailed =>
-      'The file could not be written. Check the local runtime and storage; edit and update the preview before confirming another save.';
+  String get phoneSkillLearnedTitle => 'DSH learned a new way to do this';
 
   @override
-  String get phoneSkillUnavailable => 'Skill drafts are unavailable. Check the local engine state and try again.';
+  String phoneSkillUpdateTitle(String name) {
+    return 'DSH wants to improve “$name”';
+  }
+
+  @override
+  String get phoneSkillAccept => 'Accept';
+
+  @override
+  String get phoneSkillAcceptUpdate => 'Accept the change';
+
+  @override
+  String get phoneSkillEditDraft => 'Edit';
+
+  @override
+  String get phoneSkillDiscard => 'Discard';
+
+  @override
+  String get phoneSkillDiscarded => 'Draft discarded';
+
+  @override
+  String phoneSkillAccepted(String name) {
+    return 'Accepted “$name”; it\'s on trial';
+  }
+
+  @override
+  String get phoneSkillOpenSource => 'Open that chat';
+
+  @override
+  String get phoneSkillLegacyTitle => 'Saved earlier';
+
+  @override
+  String get phoneSkillLegacyHint => 'Templates from the old version. DSH doesn\'t use them; you can delete them';
+
+  @override
+  String get phoneSkillDelete => 'Delete skill';
+
+  @override
+  String phoneSkillDeleteTitle(String name) {
+    return 'Delete “$name”?';
+  }
+
+  @override
+  String get phoneSkillDeleteBody => 'DSH will stop using it.';
+
+  @override
+  String get phoneSkillRestore => 'Restore previous version';
+
+  @override
+  String get phoneSkillRestored => 'Previous version restored';
+
+  @override
+  String get phoneSkillUseInChat => 'Use in a chat';
+
+  @override
+  String get phoneSkillSaved => 'Saved';
+
+  @override
+  String get phoneSkillSectionEntry => 'Where to start';
+
+  @override
+  String get phoneSkillSectionSteps => 'Steps';
+
+  @override
+  String get phoneSkillSectionPitfalls => 'Watch out for';
+
+  @override
+  String get phoneSkillSectionSuccess => 'Done when';
+
+  @override
+  String get phoneSkillSectionHandoff => 'Stop and hand back when';
+
+  @override
+  String get phoneSkillFieldName => 'Name';
+
+  @override
+  String get phoneSkillFieldDescription => 'What it does';
+
+  @override
+  String get phoneSkillFieldWhen => 'When to use it';
+
+  @override
+  String get phoneSkillEditHint =>
+      'Write specific names, numbers and text as <placeholder>; DSH fills them in from each request.';
+
+  @override
+  String get phoneSkillRecent => 'Recent runs';
+
+  @override
+  String get phoneSkillRecentNone => 'Not used yet';
+
+  @override
+  String get phoneSkillRecentOk => 'worked';
+
+  @override
+  String get phoneSkillRecentMiss => 'failed';
+
+  @override
+  String get phoneSkillRecentVoid => 'not counted';
+
+  @override
+  String get phoneSkillRecentSeparator => ', ';
+
+  @override
+  String get phoneSkillErrorChanged =>
+      'The skill changed meanwhile, so this edit didn\'t overwrite it. Go back and look again.';
+
+  @override
+  String get phoneSkillErrorInvalid => 'A section is empty or malformed; fill in every section and save again.';
+
+  @override
+  String get phoneSkillErrorSensitive => 'It contains a password or code; remove it and save again.';
+
+  @override
+  String get phoneSkillErrorUnavailable => 'Phone skills are unavailable right now; try again later.';
+
+  @override
+  String phoneSkillPromoted(String name) {
+    return '“$name” worked, so it\'s in regular use now';
+  }
+
+  @override
+  String phoneSkillSuspended(String name) {
+    return '“$name” hasn\'t been working, so it\'s turned off for now';
+  }
+
+  @override
+  String get phoneSkillTurnOn => 'Turn on';
+
+  @override
+  String phoneSkillApps(String apps) {
+    return 'For $apps';
+  }
+
+  @override
+  String get phoneSkillUndo => 'Undo';
+
+  @override
+  String get searchKwPhoneSkills => 'skills, learn, habits, how-to, saved skills';
 
   @override
   String get phoneModeTitle => 'How DSH confirms';
