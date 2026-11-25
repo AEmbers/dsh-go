@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { AntigravityAcpClient } from './acp.js';
 import {
   listBridgeDirectory,
   readBridgeFileBytes,
@@ -22,6 +23,7 @@ import { probeCliEngines, readCliSessionMessages, scanAllCliSessions } from './s
 
 export const name = 'dsh-workbench-bridge';
 export const BASE = '/plugins/dsh-workbench-bridge';
+export { AntigravityAcpClient };
 
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_MESSAGES_BYTES = 2 * 1024 * 1024;
@@ -298,10 +300,30 @@ export function createWorkbenchRoutes(ctx, options = {}) {
         });
       }
 
-      if (overlay.running || overlay.assistantText || overlay.assistantReasoning || overlay.errorText) {
+      const hasOverlayTools = Array.isArray(overlay.toolCalls) && overlay.toolCalls.length > 0;
+      if (overlay.running || overlay.assistantText || overlay.assistantReasoning || hasOverlayTools || overlay.errorText) {
+        // 收集当前会话末尾最近几条落盘消息中已存在的 tool_call ID，避免与 ACP 实时 toolCalls 重复显示
+        const persistedToolIds = new Set();
+        for (const msg of messages.slice(-12)) {
+          if (msg?.role !== 'assistant' || !Array.isArray(msg.parts)) continue;
+          for (const part of msg.parts) {
+            if (part?.type === 'tool-call' && part.id) persistedToolIds.add(part.id);
+          }
+        }
         const parts = [];
         if (overlay.assistantReasoning) {
           parts.push({ type: 'reasoning', text: overlay.assistantReasoning });
+        }
+        if (hasOverlayTools) {
+          for (const tc of overlay.toolCalls) {
+            if (!tc?.id || persistedToolIds.has(tc.id)) continue;
+            parts.push({
+              type: 'tool-call',
+              id: tc.id,
+              name: tc.name || 'tool',
+              arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments ?? {}),
+            });
+          }
         }
         if (overlay.assistantText) {
           parts.push({ type: 'text', text: overlay.assistantText });
@@ -318,7 +340,9 @@ export function createWorkbenchRoutes(ctx, options = {}) {
             : '';
           const overlayTextTrim = (overlay.assistantText || '').trim();
           const overlayReasonTrim = (overlay.assistantReasoning || '').trim();
+          const hasUnflushedTools = parts.some((p) => p.type === 'tool-call');
           const alreadyFlushedToDisk =
+            !hasUnflushedTools &&
             lastDisk?.role === 'assistant' &&
             (lastDisk.createdAt || 0) >= overlay.startedAt - 2_000 &&
             ((overlayTextTrim && lastDiskText === overlayTextTrim) ||

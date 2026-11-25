@@ -7,7 +7,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
+import { AntigravityAcpClient, attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
 import { parseAntigravityModelsOutput, resolveAntigravityWireModel } from '../lib/models.js';
 import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
 import { readAntigravityMessages, scanAntigravitySessions } from '../lib/scanners/antigravity.js';
@@ -953,4 +953,122 @@ test('bridge strips injected attachment blocks, deduplicates overlay user bubble
   activeChild.emit('close', 0);
   const afterAppend = await routes.buildMessagesPayloadAsync('antigravity', sid, { waitMs: 0 });
   assert.ok(afterAppend.messages.some((m) => m.parts?.some((p) => p.type === 'text' && p.text === '已定位问题并修复完成')));
+});
+
+test('persistent Antigravity ACP client reuses daemon, sends native image blocks, streams tool_call updates & cancels cleanly', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-wb-acp-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  let spawnCount = 0;
+  const receivedRequests = [];
+  let holdNextPrompt = false;
+  let heldPromptId = null;
+  let activeChild = null;
+
+  const acpClient = new AntigravityAcpClient({
+    resolveBinFn: () => 'fake-agy',
+    spawnFn: () => {
+      spawnCount += 1;
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.killed = false;
+      child.exitCode = null;
+      child.kill = () => {
+        child.killed = true;
+        child.exitCode = 0;
+        child.emit('close', 0);
+      };
+      const send = (obj) => child.stdout.emit('data', Buffer.from(`${JSON.stringify(obj)}\n`));
+      child.stdin = {
+        destroyed: false,
+        write: (raw) => {
+          for (const line of String(raw).split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            const msg = JSON.parse(line);
+            receivedRequests.push(msg);
+            if (msg.method === 'initialize') {
+              send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
+            } else if (msg.method === 'session/new') {
+              send({ jsonrpc: '2.0', id: msg.id, result: { sessionId: 'acp-sess-1', models: { currentModelId: 'gemini-4-neon-high' } } });
+            } else if (msg.method === 'session/set_model') {
+              send({ jsonrpc: '2.0', id: msg.id, result: {} });
+            } else if (msg.method === 'session/prompt') {
+              const sid = msg.params.sessionId;
+              send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Analyzing image' } } } });
+              send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'tool_call', toolCallId: 'tc-acp-1', name: 'default_api:read_file', args: { Path: 'a.dart' }, status: 'in_progress' } } });
+              send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Done via ACP' } } } });
+              if (holdNextPrompt) {
+                heldPromptId = msg.id;
+              } else {
+                setTimeout(() => send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn' } }), 15);
+              }
+            } else if (msg.method === 'session/cancel' && heldPromptId !== null) {
+              const idToFinish = heldPromptId;
+              heldPromptId = null;
+              send({ jsonrpc: '2.0', id: idToFinish, result: { stopReason: 'cancelled' } });
+            }
+          }
+        },
+      };
+      activeChild = child;
+      return child;
+    },
+  });
+
+  const runner = new CliRunManager({
+    uploadRoot: path.join(root, 'uploads'),
+    antigravityIdeRoot: path.join(root, 'ide'),
+    antigravityCliRoot: path.join(root, 'cli'),
+    acpClient,
+  });
+  t.after(() => runner.dispose());
+
+  const uploaded = runner.saveUploadChunk({
+    name: 'pic.jpg',
+    mediaType: 'image/jpeg',
+    offset: 0,
+    chunkBase64: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64'),
+    done: true,
+  });
+
+  const routes = createWorkbenchRoutes({}, { roots: { antigravity: path.join(root, 'cli') }, runner, requireConnection: false });
+
+  // 第一轮：新建会话 + 传原生图片块 + 切模型 + 接收 thought / tool_call / message 流
+  const run1 = runner.startRun({
+    engine: 'antigravity',
+    prompt: '看看这张图',
+    model: 'gemini-4-hydrogen',
+    reasoningEffort: 'medium',
+    attachmentIds: [uploaded.uploadId],
+  });
+  assert.equal(run1.running, true);
+
+  await new Promise((r) => setTimeout(r, 90));
+  const snap1 = await routes.buildMessagesPayloadAsync('antigravity', run1.rawId, { waitMs: 0 });
+  assert.equal(snap1.resolvedSessionId, 'cli:antigravity:acp-sess-1');
+  const assistant = snap1.messages.find((m) => m.role === 'assistant');
+  assert.ok(assistant);
+  assert.ok(assistant.parts.some((p) => p.type === 'reasoning' && p.text.includes('Analyzing image')));
+  assert.ok(assistant.parts.some((p) => p.type === 'tool-call' && p.name === 'read_file' && p.id === 'tc-acp-1'));
+  assert.ok(assistant.parts.some((p) => p.type === 'text' && p.text.includes('Done via ACP')));
+
+  const promptReq = receivedRequests.find((r) => r.method === 'session/prompt');
+  assert.ok(promptReq.params.prompt.some((b) => b.type === 'image' && b.mimeType === 'image/jpeg'));
+  assert.ok(receivedRequests.some((r) => r.method === 'session/set_model' && r.params.modelId === 'gemini-4-hydrogen-medium'));
+  assert.equal(spawnCount, 1);
+
+  // 第二轮：同一会话续聊零冷启动复用常驻进程，并测试优雅取消 session/cancel
+  holdNextPrompt = true;
+  runner.startRun({
+    engine: 'antigravity',
+    rawSessionId: run1.rawId,
+    prompt: '第二轮长任务',
+  });
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(spawnCount, 1, 'should reuse persistent agy acp process without respawning');
+  assert.equal(runner.abortRun('antigravity', 'acp-sess-1'), true);
+  assert.ok(receivedRequests.some((r) => r.method === 'session/cancel' && r.params.sessionId === 'acp-sess-1'));
+  assert.equal(acpClient.isAlive, true, 'cancel should keep persistent ACP process alive');
+  assert.ok(activeChild);
 });

@@ -7,9 +7,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { AntigravityAcpClient } from './acp.js';
 import { resolveAntigravityWireModel } from './models.js';
 import { readAntigravityMessages, scanAntigravitySessions } from './scanners/antigravity.js';
-import { CLI_ENGINES, isSafeSessionId, resolveExecutable } from './scanners/common.js';
+import { CLI_ENGINES, isSafeSessionId, normalizeCliToolName, resolveExecutable } from './scanners/common.js';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const UPLOAD_TTL_MS = 2 * 60 * 60 * 1000;
@@ -184,6 +185,14 @@ export class CliRunManager {
     this._checkIdeReadonly = !deps.spawnFn || hasCustomRoots;
     this._antigravityIdeRoot = deps.antigravityIdeRoot || path.join(os.homedir(), '.gemini', 'antigravity');
     this._antigravityCliRoot = deps.antigravityCliRoot || path.join(os.homedir(), '.gemini', 'antigravity-cli');
+    // 生产环境（未注入自定义 spawnFn）或显式指定 useAcp/acpClient 时，Antigravity 默认走常驻 agy acp 进程。
+    this._useAcp = deps.useAcp !== undefined ? Boolean(deps.useAcp) : (!deps.spawnFn || Boolean(deps.acpClient));
+    this._acp = deps.acpClient || (this._useAcp
+      ? new AntigravityAcpClient({
+          spawnFn: this._spawn,
+          resolveBinFn: this._resolveBin,
+        })
+      : null);
     /** @type {Map<string, object>} key: "engine:rawId" */
     this._runs = new Map();
     /** @type {Map<string, string>} key: "engine:pendingRawId" -> resolvedRawId */
@@ -529,6 +538,39 @@ export class CliRunManager {
       }
     }
 
+    const rawId = cliSessionArgId || `pending-${crypto.randomUUID()}`;
+    const key = `${engine}:${rawId}`;
+    const existing = this._runs.get(key);
+    if (existing?.running) {
+      throw Object.assign(new Error(`${engine} session ${rawId} is already running`), {
+        status: 409,
+        code: 'already_running',
+      });
+    }
+
+    const runId = crypto.randomUUID();
+    const resolvedInputCwd = input.cwd && fs.existsSync(input.cwd) ? input.cwd : null;
+    const resolvedHandoffCwd = handoff?.cwd && fs.existsSync(handoff.cwd) ? handoff.cwd : null;
+    const cwd = resolvedInputCwd || resolvedHandoffCwd || os.homedir();
+
+    // Antigravity 常驻 ACP 模式：零冷启动、原生多模态图片块、实时双向 JSON-RPC 推送。
+    if (engine === 'antigravity' && this._acp) {
+      return this._startAntigravityAcpRun({
+        runId,
+        rawId,
+        key,
+        cliSessionArgId,
+        requestedId,
+        handoff,
+        cwd,
+        rawPrompt,
+        displayPrompt,
+        attachments,
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+      });
+    }
+
     const { binCandidates, args } = buildCliCommand(engine, {
       rawSessionId: cliSessionArgId,
       prompt: effectivePrompt,
@@ -545,20 +587,6 @@ export class CliRunManager {
       });
     }
 
-    const rawId = cliSessionArgId || `pending-${crypto.randomUUID()}`;
-    const key = `${engine}:${rawId}`;
-    const existing = this._runs.get(key);
-    if (existing?.running) {
-      throw Object.assign(new Error(`${engine} session ${rawId} is already running`), {
-        status: 409,
-        code: 'already_running',
-      });
-    }
-
-    const runId = crypto.randomUUID();
-    const resolvedInputCwd = input.cwd && fs.existsSync(input.cwd) ? input.cwd : null;
-    const resolvedHandoffCwd = handoff?.cwd && fs.existsSync(handoff.cwd) ? handoff.cwd : null;
-    const cwd = resolvedInputCwd || resolvedHandoffCwd || os.homedir();
     const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(exe);
     const child = this._spawn(exe, args, {
       cwd,
@@ -690,7 +718,184 @@ export class CliRunManager {
   }
 
   /**
-   * 停止正在运行的 CLI 子进程。
+   * 通过常驻 `agy acp` 守护进程发起 Antigravity 对话轮次。
+   *
+   * @param {object} ctx
+   * @returns {{ ok: true, sessionId: string, rawId: string, runId: string, running: true }}
+   */
+  _startAntigravityAcpRun(ctx) {
+    const {
+      runId,
+      rawId,
+      key,
+      cliSessionArgId,
+      requestedId,
+      handoff,
+      cwd,
+      rawPrompt,
+      displayPrompt,
+      attachments,
+      model,
+      reasoningEffort,
+    } = ctx;
+
+    const promptBlocks = [];
+    const nonImageAttachments = [];
+    for (const att of attachments) {
+      const isImg = IMAGE_MIME_RE.test(att.mediaType) || IMAGE_EXT_RE.test(att.name);
+      if (isImg && att.path && fs.existsSync(att.path)) {
+        try {
+          const data = fs.readFileSync(att.path).toString('base64');
+          const mimeType = IMAGE_MIME_RE.test(att.mediaType) ? att.mediaType : 'image/jpeg';
+          promptBlocks.push({ type: 'image', data, mimeType });
+          continue;
+        } catch {
+          // 读图失败则回退本地路径提示
+        }
+      }
+      nonImageAttachments.push(att);
+    }
+
+    let textBody = rawPrompt || '请查看并分析用户附带的图片或文件。';
+    if (handoff) {
+      textBody = `${handoff.contextBlock}\n\n${textBody}`;
+    }
+    if (nonImageAttachments.length > 0) {
+      const list = nonImageAttachments.map((a) => `- ${a.name} (${a.mediaType}): ${a.path}`).join('\n');
+      textBody = `${textBody}\n\n[用户附带的本地文件，请直接读取分析]\n${list}`;
+    }
+    promptBlocks.unshift({ type: 'text', text: textBody });
+
+    const resolvedModel = resolveAntigravityWireModel(model, reasoningEffort);
+    const state = {
+      runId,
+      engine: 'antigravity',
+      mode: 'acp',
+      rawId,
+      resolvedRawId: cliSessionArgId,
+      sessionId: `cli:antigravity:${rawId}`,
+      cwd,
+      rawPrompt,
+      prompt: displayPrompt,
+      attachments: attachments.map((a) => ({
+        uploadId: a.uploadId,
+        name: a.name,
+        mediaType: a.mediaType,
+        bytes: a.bytes,
+      })),
+      model: model || null,
+      reasoningEffort: reasoningEffort || null,
+      running: true,
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      activeStepIndex: null,
+      assistantText: '',
+      assistantReasoning: '',
+      toolCalls: [],
+      errorText: '',
+      exitCode: null,
+      version: 1,
+      child: null,
+    };
+    this._runs.set(key, state);
+    this._notifyState(state, { immediate: true });
+
+    const runAsync = async () => {
+      try {
+        const ensured = await this._acp.ensureSession({ rawId: cliSessionArgId, cwd });
+        const acpSessionId = ensured.sessionId;
+        if (!state.resolvedRawId && acpSessionId) {
+          state.resolvedRawId = acpSessionId;
+          this._resolvedIds.set(`antigravity:${rawId}`, acpSessionId);
+          this._notifyState(state, { immediate: true });
+        }
+        if (resolvedModel.model) {
+          try {
+            await this._acp.setModel(acpSessionId, resolvedModel.model);
+          } catch {
+            // 忽略不支持的模型切换报错，沿用会话当前模型继续执行
+          }
+        }
+
+        await this._acp.prompt({
+          sessionId: acpSessionId,
+          prompt: promptBlocks,
+          onUpdate: (u) => {
+            if (!u || typeof u !== 'object') return;
+            const kind = u.sessionUpdate;
+            let changed = false;
+            if (kind === 'agent_thought_chunk') {
+              const text = typeof u.content?.text === 'string' ? u.content.text : '';
+              if (text) {
+                state.assistantReasoning += text;
+                changed = true;
+              }
+            } else if (kind === 'agent_message_chunk') {
+              const text = typeof u.content?.text === 'string' ? u.content.text : '';
+              if (text) {
+                state.assistantText += text;
+                changed = true;
+              }
+            } else if (kind === 'tool_call' || kind === 'tool_call_update') {
+              const callId = String(u.toolCallId || u.id || `acp-tool-${state.toolCalls.length}`);
+              const toolName = normalizeCliToolName(u.name || u.title || 'tool');
+              const rawArgs = u.args ?? u.rawInput;
+              const argsStr = rawArgs === undefined
+                ? undefined
+                : (typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs));
+              const idx = state.toolCalls.findIndex((t) => t.id === callId);
+              if (idx >= 0) {
+                const prev = state.toolCalls[idx];
+                state.toolCalls[idx] = {
+                  ...prev,
+                  ...(u.name ? { name: toolName } : {}),
+                  ...(argsStr !== undefined ? { arguments: argsStr } : {}),
+                  ...(typeof u.status === 'string' ? { status: u.status } : {}),
+                };
+              } else {
+                state.toolCalls.push({
+                  id: callId,
+                  name: toolName,
+                  arguments: argsStr ?? '{}',
+                  status: typeof u.status === 'string' ? u.status : 'in_progress',
+                });
+              }
+              changed = true;
+            }
+            if (changed) {
+              state.updatedAt = Date.now();
+              this._notifyState(state);
+            }
+          },
+        });
+        state.exitCode = 0;
+      } catch (err) {
+        if (state.running) {
+          const msg = String(err?.message || err || 'Antigravity ACP prompt failed');
+          state.errorText += (state.errorText ? '\n' : '') + msg;
+          state.exitCode = -1;
+        }
+      } finally {
+        state.running = false;
+        state.updatedAt = Date.now();
+        this._notifyState(state, { immediate: true });
+      }
+    };
+
+    void runAsync();
+
+    return {
+      ok: true,
+      sessionId: state.sessionId,
+      rawId: state.rawId,
+      runId: state.runId,
+      running: true,
+      ...(handoff ? { handedOffFrom: requestedId } : {}),
+    };
+  }
+
+  /**
+   * 停止正在运行的 CLI 子进程（ACP 模式发送优雅取消，不杀死常驻进程）。
    *
    * @param {string} engine
    * @param {string} rawId
@@ -698,7 +903,15 @@ export class CliRunManager {
    */
   abortRun(engine, rawId) {
     const state = this._runs.get(`${engine}:${rawId}`);
-    if (!state || !state.running || !state.child) return false;
+    if (!state || !state.running) return false;
+    if (state.mode === 'acp' && this._acp) {
+      this._acp.cancel(state.resolvedRawId || rawId);
+      state.running = false;
+      state.updatedAt = Date.now();
+      this._notifyState(state, { immediate: true });
+      return true;
+    }
+    if (!state.child) return false;
     try {
       state.child.kill('SIGTERM');
     } catch {
@@ -746,7 +959,7 @@ export class CliRunManager {
   }
 
   /**
-   * 销毁时清理全部尚未退出的子进程与事件定时器。
+   * 销毁时清理全部尚未退出的子进程、常驻 ACP 客户端与事件定时器。
    */
   dispose() {
     for (const timer of this._notifyTimers.values()) {
@@ -754,6 +967,7 @@ export class CliRunManager {
     }
     this._notifyTimers.clear();
     this._listeners.clear();
+    this._acp?.dispose();
     for (const state of this._runs.values()) {
       if (state.running && state.child) {
         try {
