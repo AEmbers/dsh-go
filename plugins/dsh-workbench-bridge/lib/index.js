@@ -9,6 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { AntigravityAcpClient } from './acp.js';
+import { AntigravityDesktopCdpClient } from './desktop_cdp.js';
 import {
   listBridgeDirectory,
   readBridgeFileBytes,
@@ -23,7 +24,7 @@ import { probeCliEngines, readCliSessionMessages, scanAllCliSessions } from './s
 
 export const name = 'dsh-workbench-bridge';
 export const BASE = '/plugins/dsh-workbench-bridge';
-export { AntigravityAcpClient };
+export { AntigravityAcpClient, AntigravityDesktopCdpClient };
 
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_MESSAGES_BYTES = 2 * 1024 * 1024;
@@ -182,7 +183,15 @@ export function createWorkbenchRoutes(ctx, options = {}) {
 
   function buildHealthPayload() {
     const engines = probeCliEngines({ binaries: options.binaries });
-    return { ok: true, plugin: name, engines };
+    return {
+      ok: true,
+      plugin: name,
+      engines,
+      antigravityDesktop: {
+        available: runner.isAntigravityDesktopAvailable(),
+        cdpUrl: runner.antigravityDesktopCdpUrl,
+      },
+    };
   }
 
   function buildSessionsPayload() {
@@ -250,7 +259,8 @@ export function createWorkbenchRoutes(ctx, options = {}) {
         (lastUser?.parts || []).some(
           (p) =>
             (p.type === 'image' || p.type === 'file') &&
-            overlay.attachments.some((a) => a.name && p.attachment?.name === a.name),
+            (overlay.mode === 'desktop-cdp' ||
+              overlay.attachments.some((a) => a.name && p.attachment?.name === a.name)),
         );
       const userAlreadyPersisted =
         lastUser != null &&

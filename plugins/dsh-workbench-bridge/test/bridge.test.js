@@ -7,7 +7,18 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { AntigravityAcpClient, attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
+import {
+  AntigravityAcpClient,
+  AntigravityDesktopCdpClient,
+  attachRemoteRpcBridge,
+  createNodePrefixHandler,
+  createWorkbenchRoutes,
+} from '../lib/index.js';
+import {
+  isLoopbackCdpUrl,
+  matchDesktopModelOption,
+  matchesCurrentModelLabel,
+} from '../lib/desktop_cdp.js';
 import { parseAntigravityModelsOutput, resolveAntigravityWireModel } from '../lib/models.js';
 import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
 import { readAntigravityMessages, scanAntigravitySessions } from '../lib/scanners/antigravity.js';
@@ -1071,4 +1082,210 @@ test('persistent Antigravity ACP client reuses daemon, sends native image blocks
   assert.ok(receivedRequests.some((r) => r.method === 'session/cancel' && r.params.sessionId === 'acp-sess-1'));
   assert.equal(acpClient.isAlive, true, 'cancel should keep persistent ACP process alive');
   assert.ok(activeChild);
+});
+
+test('desktop_cdp validates loopback URLs and matches Antigravity desktop model & effort options', () => {
+  assert.equal(isLoopbackCdpUrl('http://127.0.0.1:19222'), true);
+  assert.equal(isLoopbackCdpUrl('http://localhost:9222/'), true);
+  assert.equal(isLoopbackCdpUrl('http://[::1]:19222'), true);
+  assert.equal(isLoopbackCdpUrl('http://192.168.1.50:19222'), false);
+  assert.equal(isLoopbackCdpUrl('https://127.0.0.1:19222'), false);
+  assert.equal(isLoopbackCdpUrl('ws://127.0.0.1:19222'), false);
+
+  const nonLoopback = new AntigravityDesktopCdpClient({ cdpUrl: 'http://10.0.0.2:19222' });
+  assert.equal(nonLoopback.enabled, false);
+  assert.equal(nonLoopback.isAvailableSync(), false);
+
+  assert.equal(matchesCurrentModelLabel('Orchestrator Gemini 4 Neon High', 'gemini-pro-orchestrator-neon', null), true);
+  assert.equal(matchesCurrentModelLabel('Gemini 4 Neon High', 'gemini-4-neon', 'high'), true);
+  assert.equal(matchesCurrentModelLabel('Gemini 4 Neon High', 'gemini-4-neon', 'xhigh'), false);
+  assert.equal(matchesCurrentModelLabel('Gemini 4 Neon Medium', 'gemini-pro-orchestrator-neon', null), false);
+
+  const menuItems = [
+    { index: 0, text: 'Gemini 4 Neon Medium New', testid: '', modelLabel: '', cx: 100, cy: 100 },
+    { index: 1, text: 'Gemini 4 Hydrogen Medium New', testid: '', modelLabel: '', cx: 100, cy: 140 },
+    {
+      index: 2,
+      text: 'Orchestrator Gemini 4 Neon High New',
+      testid: 'model-selector-orchestrator',
+      modelLabel: 'Orchestrator',
+      cx: 100,
+      cy: 180,
+    },
+    { index: 3, text: 'Claude Opus 5.5 Medium New', testid: '', modelLabel: '', cx: 100, cy: 220 },
+  ];
+
+  const m1 = matchDesktopModelOption('gemini-4-neon', 'xhigh', menuItems);
+  assert.equal(m1?.item.index, 0);
+  assert.equal(m1?.desiredEffortLabel, 'Extra High');
+
+  const m2 = matchDesktopModelOption('gemini-pro-orchestrator-neon', 'high', menuItems);
+  assert.equal(m2?.item.index, 2);
+  assert.equal(m2?.desiredEffortLabel, null);
+
+  const m3 = matchDesktopModelOption('claude-opus-5-5', 'medium', menuItems);
+  assert.equal(m3?.item.index, 3);
+  assert.equal(m3?.desiredEffortLabel, 'Medium');
+});
+
+test('CliRunManager routes IDE sessions in-place & new chats to desktop CDP, and falls back to ACP when offline', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-wb-cdp-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const ideRoot = path.join(root, 'ide');
+  const cliRoot = path.join(root, 'cli');
+  const ideId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  const cliId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+  fs.mkdirSync(path.join(ideRoot, 'conversations'), { recursive: true });
+  fs.mkdirSync(path.join(ideRoot, 'brain', ideId, '.system_generated', 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(ideRoot, 'conversations', `${ideId}.db`), '');
+  fs.writeFileSync(
+    path.join(ideRoot, 'brain', ideId, '.system_generated', 'logs', 'transcript.jsonl'),
+    `${JSON.stringify({
+      step_index: 0,
+      source: 'USER_EXPLICIT',
+      type: 'USER_INPUT',
+      created_at: '2026-11-26T01:00:00Z',
+      content: '<USER_REQUEST>\nDesktop original prompt\n</USER_REQUEST>',
+    })}\n`,
+  );
+
+  fs.mkdirSync(path.join(cliRoot, 'conversations'), { recursive: true });
+  fs.writeFileSync(path.join(cliRoot, 'conversations', `${cliId}.db`), '');
+
+  let desktopOnline = true;
+  const cdpSent = [];
+  const cdpAborted = [];
+  let holdCdp = false;
+  let releaseHeldCdp = null;
+
+  const mockDesktopCdp = {
+    enabled: true,
+    cdpUrl: 'http://127.0.0.1:19222',
+    isAvailableSync: () => desktopOnline,
+    probeAvailability: async () => desktopOnline,
+    sendPrompt: async (req) => {
+      cdpSent.push(req);
+      const targetId = req.rawId || 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+      req.onResolvedId?.(targetId);
+      req.onStreamUpdate?.({ text: 'Desktop streaming chunk', domRunning: true });
+      if (holdCdp) {
+        await new Promise((res) => {
+          releaseHeldCdp = res;
+        });
+      }
+      return { resolvedRawId: targetId };
+    },
+    abort: async (id) => {
+      cdpAborted.push(id);
+      releaseHeldCdp?.();
+      return true;
+    },
+    dispose: () => {},
+  };
+
+  const acpCalls = [];
+  const mockAcp = {
+    isAlive: true,
+    ensureSession: async ({ rawId }) => {
+      acpCalls.push({ op: 'ensure', rawId });
+      return { sessionId: rawId || 'acp-fallback-1' };
+    },
+    setModel: async () => {},
+    prompt: async ({ sessionId, prompt, onUpdate }) => {
+      acpCalls.push({ op: 'prompt', sessionId, prompt });
+      onUpdate?.({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ACP fallback reply' } });
+      return { stopReason: 'end_turn' };
+    },
+    cancel: () => {},
+    dispose: () => {},
+  };
+
+  const runner = new CliRunManager({
+    uploadRoot: path.join(root, 'uploads'),
+    antigravityIdeRoot: ideRoot,
+    antigravityCliRoot: cliRoot,
+    desktopCdpClient: mockDesktopCdp,
+    acpClient: mockAcp,
+  });
+  t.after(() => runner.dispose());
+
+  const routes = createWorkbenchRoutes({}, { roots: { antigravity: cliRoot }, runner, requireConnection: false });
+  const health = routes.buildHealthPayload();
+  assert.deepEqual(health.antigravityDesktop, {
+    available: true,
+    cdpUrl: 'http://127.0.0.1:19222',
+  });
+
+  const pic = runner.saveUploadChunk({
+    name: 'desk.jpg',
+    mediaType: 'image/jpeg',
+    offset: 0,
+    chunkBase64: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64'),
+    done: true,
+  });
+
+  // 1) 已有桌面 IDE 会话原位续聊：不走 HANDOFF，保留原始 ideId，透传本地图片路径
+  holdCdp = true;
+  const ideRun = runner.startRun({
+    engine: 'antigravity',
+    rawSessionId: ideId,
+    prompt: 'Continue on desktop',
+    model: 'gemini-4-neon',
+    reasoningEffort: 'high',
+    attachmentIds: [pic.uploadId],
+  });
+  assert.equal(ideRun.rawId, ideId);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(cdpSent.length, 1);
+  assert.equal(cdpSent[0].rawId, ideId);
+  assert.equal(cdpSent[0].prompt, 'Continue on desktop');
+  assert.equal(cdpSent[0].filePaths.length, 1);
+  assert.equal(acpCalls.length, 0);
+
+  const ideSnap = await routes.buildMessagesPayloadAsync('antigravity', ideId, { waitMs: 0 });
+  assert.ok(ideSnap.messages.some((m) => m.role === 'assistant' && m.parts.some((p) => p.text === 'Desktop streaming chunk')));
+
+  // 中止正在进行的桌面 CDP 运行
+  assert.equal(runner.abortRun('antigravity', ideId), true);
+  assert.deepEqual(cdpAborted, [ideId]);
+  await new Promise((r) => setTimeout(r, 20));
+  holdCdp = false;
+
+  // 2) 新建会话直连桌面 CDP 并正确写回 resolvedSessionId
+  const newDeskRun = runner.startRun({
+    engine: 'antigravity',
+    prompt: 'Hello new desktop chat',
+  });
+  assert.ok(newDeskRun.rawId.startsWith('pending-'));
+  await new Promise((r) => setTimeout(r, 30));
+  const newSnap = await routes.buildMessagesPayloadAsync('antigravity', newDeskRun.rawId, { waitMs: 0 });
+  assert.equal(newSnap.resolvedSessionId, 'cli:antigravity:eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+
+  // 3) CLI 会话依然直走常驻 ACP，不碰桌面 CDP
+  const cdpBeforeCli = cdpSent.length;
+  runner.startRun({
+    engine: 'antigravity',
+    rawSessionId: cliId,
+    prompt: 'Stay in CLI ACP',
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(cdpSent.length, cdpBeforeCli);
+  assert.ok(acpCalls.some((c) => c.op === 'ensure' && c.rawId === cliId));
+
+  // 4) 桌面端直发任务（不在 _runs 中）也可通过 abortRun 通知桌面 CDP 停止
+  assert.equal(runner.abortRun('antigravity', ideId), true);
+  assert.equal(cdpAborted.filter((id) => id === ideId).length, 2);
+
+  // 5) 桌面版离线时，新建会话自动无缝降级到常驻 ACP
+  desktopOnline = false;
+  const fallbackRun = runner.startRun({
+    engine: 'antigravity',
+    prompt: 'Fallback to ACP when desktop offline',
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  const fbSnap = await routes.buildMessagesPayloadAsync('antigravity', fallbackRun.rawId, { waitMs: 0 });
+  assert.equal(fbSnap.resolvedSessionId, 'cli:antigravity:acp-fallback-1');
+  assert.ok(fbSnap.messages.some((m) => m.parts.some((p) => p.text === 'ACP fallback reply')));
 });

@@ -6,8 +6,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import { AntigravityAcpClient } from './acp.js';
+import { AntigravityDesktopCdpClient } from './desktop_cdp.js';
 import { resolveAntigravityWireModel } from './models.js';
 import { readAntigravityMessages, scanAntigravitySessions } from './scanners/antigravity.js';
 import { CLI_ENGINES, isSafeSessionId, normalizeCliToolName, resolveExecutable } from './scanners/common.js';
@@ -193,6 +195,20 @@ export class CliRunManager {
           resolveBinFn: this._resolveBin,
         })
       : null);
+    this._newAntigravitySessionMode = String(
+      deps.newAntigravitySessionMode || process.env.DSH_ANTIGRAVITY_NEW_SESSION_MODE || 'desktop',
+    ).trim().toLowerCase();
+    const enableDefaultDesktopCdp = deps.useDesktopCdp !== undefined
+      ? Boolean(deps.useDesktopCdp)
+      : (!deps.spawnFn && !deps.acpClient);
+    this._desktopCdp = deps.desktopCdpClient !== undefined
+      ? deps.desktopCdpClient
+      : (enableDefaultDesktopCdp
+          ? new AntigravityDesktopCdpClient({ cdpUrl: deps.desktopCdpUrl })
+          : null);
+    if (this._desktopCdp && typeof this._desktopCdp.probeAvailability === 'function') {
+      void this._desktopCdp.probeAvailability().catch(() => {});
+    }
     /** @type {Map<string, object>} key: "engine:rawId" */
     this._runs = new Map();
     /** @type {Map<string, string>} key: "engine:pendingRawId" -> resolvedRawId */
@@ -286,6 +302,67 @@ export class CliRunManager {
     const ideDb = path.join(this._antigravityIdeRoot, 'conversations', `${rawId}.db`);
     const ideBrain = path.join(this._antigravityIdeRoot, 'brain', rawId);
     return fs.existsSync(ideDb) || fs.existsSync(ideBrain);
+  }
+
+  /**
+   * 检查 Antigravity 桌面版通道当前是否可用（供健康检查输出）。
+   *
+   * @returns {boolean}
+   */
+  isAntigravityDesktopAvailable() {
+    return Boolean(this._desktopCdp?.enabled !== false && this._desktopCdp?.isAvailableSync?.());
+  }
+
+  /**
+   * 返回当前配置的桌面版 CDP 地址。
+   *
+   * @returns {string | null}
+   */
+  get antigravityDesktopCdpUrl() {
+    return this._desktopCdp?.cdpUrl || null;
+  }
+
+  /**
+   * 只读检查桌面端 Antigravity 会话在 SQLite / transcript 中是否仍处于运行态。
+   *
+   * @param {string} rawId
+   * @returns {boolean}
+   */
+  _isAntigravitySessionRunningOnDisk(rawId) {
+    if (!rawId || !isSafeSessionId(rawId)) return false;
+    const dbPath = path.join(this._antigravityIdeRoot, 'conversation_summaries.db');
+    if (fs.existsSync(dbPath)) {
+      let db;
+      try {
+        db = new DatabaseSync(dbPath, { readOnly: true });
+        const row = db
+          .prepare('SELECT not_fully_idle, killed FROM conversation_summaries WHERE conversation_id = ? LIMIT 1')
+          .get(rawId);
+        if (row) {
+          return Boolean(row.not_fully_idle) && !row.killed;
+        }
+      } catch {
+        // 忽略瞬时锁异常
+      } finally {
+        try {
+          db?.close();
+        } catch {
+          // ignore
+        }
+      }
+    }
+    const logPath = path.join(this._antigravityIdeRoot, 'brain', rawId, '.system_generated', 'logs', 'transcript.jsonl');
+    try {
+      if (fs.existsSync(logPath)) {
+        const stat = fs.statSync(logPath);
+        if (Date.now() - stat.mtimeMs < 6000) {
+          return true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return false;
   }
 
   /**
@@ -511,9 +588,17 @@ export class CliRunManager {
       ? (this._resolvedIds.get(`${engine}:${rawRequestedId}`) || rawRequestedId)
       : null;
 
+    const isIdeSession = engine === 'antigravity' && Boolean(requestedId) && this._isIdeOnlyAntigravitySession(requestedId);
+    const desktopCandidate = Boolean(
+      this._desktopCdp &&
+      this._desktopCdp.enabled !== false &&
+      engine === 'antigravity' &&
+      (isIdeSession || (!requestedId && this._newAntigravitySessionMode !== 'acp')),
+    );
+
     let handoff = null;
     let cliSessionArgId = requestedId;
-    if (engine === 'antigravity' && requestedId && this._isIdeOnlyAntigravitySession(requestedId)) {
+    if (isIdeSession && !desktopCandidate) {
       handoff = this._buildIdeHandoffContext(requestedId);
       cliSessionArgId = null;
     }
@@ -552,6 +637,23 @@ export class CliRunManager {
     const resolvedInputCwd = input.cwd && fs.existsSync(input.cwd) ? input.cwd : null;
     const resolvedHandoffCwd = handoff?.cwd && fs.existsSync(handoff.cwd) ? handoff.cwd : null;
     const cwd = resolvedInputCwd || resolvedHandoffCwd || os.homedir();
+
+    // Antigravity 桌面版 CDP 模式（已有 IDE 会话原位续聊；新开会话默认直走桌面版，离线时自动降级到 ACP）。
+    if (desktopCandidate) {
+      return this._startAntigravityDesktopRun({
+        runId,
+        rawId,
+        key,
+        isIdeSession,
+        requestedId,
+        cwd,
+        rawPrompt,
+        displayPrompt,
+        attachments,
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+      });
+    }
 
     // Antigravity 常驻 ACP 模式：零冷启动、原生多模态图片块、实时双向 JSON-RPC 推送。
     if (engine === 'antigravity' && this._acp) {
@@ -717,28 +819,7 @@ export class CliRunManager {
     };
   }
 
-  /**
-   * 通过常驻 `agy acp` 守护进程发起 Antigravity 对话轮次。
-   *
-   * @param {object} ctx
-   * @returns {{ ok: true, sessionId: string, rawId: string, runId: string, running: true }}
-   */
-  _startAntigravityAcpRun(ctx) {
-    const {
-      runId,
-      rawId,
-      key,
-      cliSessionArgId,
-      requestedId,
-      handoff,
-      cwd,
-      rawPrompt,
-      displayPrompt,
-      attachments,
-      model,
-      reasoningEffort,
-    } = ctx;
-
+  _buildAcpPromptBlocks({ rawPrompt, handoff, attachments }) {
     const promptBlocks = [];
     const nonImageAttachments = [];
     for (const att of attachments) {
@@ -765,8 +846,263 @@ export class CliRunManager {
       textBody = `${textBody}\n\n[用户附带的本地文件，请直接读取分析]\n${list}`;
     }
     promptBlocks.unshift({ type: 'text', text: textBody });
+    return promptBlocks;
+  }
 
+  /**
+   * 在给定运行态对象上通过常驻 `agy acp` 守护进程推进对话直到结束（供直连与离线降级复用）。
+   *
+   * @param {object} state
+   * @param {{ cliSessionArgId: string | null, handoff: object | null, cwd: string, rawPrompt: string, attachments: Array<object>, model?: string | null, reasoningEffort?: string | null }} opts
+   */
+  async _executeAntigravityAcpIntoState(state, opts) {
+    const { cliSessionArgId, handoff, cwd, rawPrompt, attachments, model, reasoningEffort } = opts;
+    const promptBlocks = this._buildAcpPromptBlocks({ rawPrompt, handoff, attachments });
     const resolvedModel = resolveAntigravityWireModel(model, reasoningEffort);
+
+    try {
+      const ensured = await this._acp.ensureSession({ rawId: cliSessionArgId, cwd });
+      const acpSessionId = ensured.sessionId;
+      if (acpSessionId && (!state.resolvedRawId || state.resolvedRawId !== acpSessionId)) {
+        state.resolvedRawId = acpSessionId;
+        this._resolvedIds.set(`antigravity:${state.rawId}`, acpSessionId);
+        this._notifyState(state, { immediate: true });
+      }
+      if (resolvedModel.model) {
+        try {
+          await this._acp.setModel(acpSessionId, resolvedModel.model);
+        } catch {
+          // 忽略不支持的模型切换报错，沿用会话当前模型继续执行
+        }
+      }
+
+      await this._acp.prompt({
+        sessionId: acpSessionId,
+        prompt: promptBlocks,
+        onUpdate: (u) => {
+          if (!u || typeof u !== 'object') return;
+          const kind = u.sessionUpdate;
+          let changed = false;
+          if (kind === 'agent_thought_chunk') {
+            const text = typeof u.content?.text === 'string' ? u.content.text : '';
+            if (text) {
+              state.assistantReasoning += text;
+              changed = true;
+            }
+          } else if (kind === 'agent_message_chunk') {
+            const text = typeof u.content?.text === 'string' ? u.content.text : '';
+            if (text) {
+              state.assistantText += text;
+              changed = true;
+            }
+          } else if (kind === 'tool_call' || kind === 'tool_call_update') {
+            const callId = String(u.toolCallId || u.id || `acp-tool-${state.toolCalls.length}`);
+            const toolName = normalizeCliToolName(u.name || u.title || 'tool');
+            const rawArgs = u.args ?? u.rawInput;
+            const argsStr = rawArgs === undefined
+              ? undefined
+              : (typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs));
+            const idx = state.toolCalls.findIndex((t) => t.id === callId);
+            if (idx >= 0) {
+              const prev = state.toolCalls[idx];
+              state.toolCalls[idx] = {
+                ...prev,
+                ...(u.name ? { name: toolName } : {}),
+                ...(argsStr !== undefined ? { arguments: argsStr } : {}),
+                ...(typeof u.status === 'string' ? { status: u.status } : {}),
+              };
+            } else {
+              state.toolCalls.push({
+                id: callId,
+                name: toolName,
+                arguments: argsStr ?? '{}',
+                status: typeof u.status === 'string' ? u.status : 'in_progress',
+              });
+            }
+            changed = true;
+          }
+          if (changed) {
+            state.updatedAt = Date.now();
+            this._notifyState(state);
+          }
+        },
+      });
+      state.exitCode = 0;
+    } catch (err) {
+      if (state.running) {
+        const msg = String(err?.message || err || 'Antigravity ACP prompt failed');
+        state.errorText += (state.errorText ? '\n' : '') + msg;
+        state.exitCode = -1;
+      }
+    } finally {
+      state.running = false;
+      state.updatedAt = Date.now();
+      this._notifyState(state, { immediate: true });
+    }
+  }
+
+  /**
+   * 通过本机 CDP 后台静默驱动 Antigravity 桌面版执行对话（若桌面端离线则自动无缝降级到常驻 ACP）。
+   *
+   * @param {object} ctx
+   * @returns {{ ok: true, sessionId: string, rawId: string, runId: string, running: true }}
+   */
+  _startAntigravityDesktopRun(ctx) {
+    const {
+      runId,
+      rawId,
+      key,
+      isIdeSession,
+      requestedId,
+      cwd,
+      rawPrompt,
+      displayPrompt,
+      attachments,
+      model,
+      reasoningEffort,
+    } = ctx;
+
+    const abortController = new AbortController();
+    const state = {
+      runId,
+      engine: 'antigravity',
+      mode: 'desktop-cdp',
+      rawId,
+      resolvedRawId: isIdeSession ? requestedId : null,
+      sessionId: `cli:antigravity:${rawId}`,
+      cwd,
+      rawPrompt,
+      prompt: displayPrompt,
+      attachments: attachments.map((a) => ({
+        uploadId: a.uploadId,
+        name: a.name,
+        mediaType: a.mediaType,
+        bytes: a.bytes,
+      })),
+      model: model || null,
+      reasoningEffort: reasoningEffort || null,
+      running: true,
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      activeStepIndex: null,
+      assistantText: '',
+      assistantReasoning: '',
+      toolCalls: [],
+      errorText: '',
+      exitCode: null,
+      version: 1,
+      child: null,
+      _abortController: abortController,
+    };
+    this._runs.set(key, state);
+    this._notifyState(state, { immediate: true });
+
+    const runAsync = async () => {
+      const desktopReady = await this._desktopCdp.probeAvailability({ force: true }).catch(() => false);
+      if (!desktopReady) {
+        if (this._acp) {
+          state.mode = 'acp';
+          const handoff = isIdeSession ? this._buildIdeHandoffContext(requestedId) : null;
+          if (handoff) {
+            state.resolvedRawId = null;
+          }
+          const acpCwd = handoff?.cwd && fs.existsSync(handoff.cwd) ? handoff.cwd : cwd;
+          await this._executeAntigravityAcpIntoState(state, {
+            cliSessionArgId: null,
+            handoff,
+            cwd: acpCwd,
+            rawPrompt,
+            attachments,
+            model,
+            reasoningEffort,
+          });
+          return;
+        }
+        state.errorText = IDE_READONLY_MESSAGE;
+        state.exitCode = -1;
+        state.running = false;
+        state.updatedAt = Date.now();
+        this._notifyState(state, { immediate: true });
+        return;
+      }
+
+      try {
+        const filePaths = attachments
+          .map((a) => a.path)
+          .filter((p) => typeof p === 'string' && p.length > 0 && fs.existsSync(p));
+        await this._desktopCdp.sendPrompt({
+          rawId: isIdeSession ? requestedId : null,
+          cwd,
+          prompt: rawPrompt || (filePaths.length > 0 ? '' : displayPrompt),
+          model,
+          reasoningEffort,
+          filePaths,
+          signal: abortController.signal,
+          onResolvedId: (resolvedId) => {
+            if (!resolvedId) return;
+            if (!state.resolvedRawId || state.resolvedRawId !== resolvedId) {
+              state.resolvedRawId = resolvedId;
+              this._resolvedIds.set(`antigravity:${rawId}`, resolvedId);
+              state.updatedAt = Date.now();
+              this._notifyState(state, { immediate: true });
+            }
+          },
+          onStreamUpdate: ({ text }) => {
+            if (typeof text === 'string' && text && text !== state.assistantText) {
+              state.assistantText = text;
+              state.updatedAt = Date.now();
+              this._notifyState(state);
+            }
+          },
+          isDiskRunning: (id) => this._isAntigravitySessionRunningOnDisk(id),
+        });
+        state.exitCode = 0;
+      } catch (err) {
+        if (state.running && !abortController.signal.aborted) {
+          const msg = String(err?.message || err || 'Antigravity Desktop CDP prompt failed');
+          state.errorText += (state.errorText ? '\n' : '') + msg;
+          state.exitCode = -1;
+        }
+      } finally {
+        state.running = false;
+        state.updatedAt = Date.now();
+        this._notifyState(state, { immediate: true });
+      }
+    };
+
+    void runAsync();
+
+    return {
+      ok: true,
+      sessionId: state.sessionId,
+      rawId: state.rawId,
+      runId: state.runId,
+      running: true,
+    };
+  }
+
+  /**
+   * 通过常驻 `agy acp` 守护进程发起 Antigravity 对话轮次。
+   *
+   * @param {object} ctx
+   * @returns {{ ok: true, sessionId: string, rawId: string, runId: string, running: true }}
+   */
+  _startAntigravityAcpRun(ctx) {
+    const {
+      runId,
+      rawId,
+      key,
+      cliSessionArgId,
+      requestedId,
+      handoff,
+      cwd,
+      rawPrompt,
+      displayPrompt,
+      attachments,
+      model,
+      reasoningEffort,
+    } = ctx;
+
     const state = {
       runId,
       engine: 'antigravity',
@@ -800,89 +1136,15 @@ export class CliRunManager {
     this._runs.set(key, state);
     this._notifyState(state, { immediate: true });
 
-    const runAsync = async () => {
-      try {
-        const ensured = await this._acp.ensureSession({ rawId: cliSessionArgId, cwd });
-        const acpSessionId = ensured.sessionId;
-        if (!state.resolvedRawId && acpSessionId) {
-          state.resolvedRawId = acpSessionId;
-          this._resolvedIds.set(`antigravity:${rawId}`, acpSessionId);
-          this._notifyState(state, { immediate: true });
-        }
-        if (resolvedModel.model) {
-          try {
-            await this._acp.setModel(acpSessionId, resolvedModel.model);
-          } catch {
-            // 忽略不支持的模型切换报错，沿用会话当前模型继续执行
-          }
-        }
-
-        await this._acp.prompt({
-          sessionId: acpSessionId,
-          prompt: promptBlocks,
-          onUpdate: (u) => {
-            if (!u || typeof u !== 'object') return;
-            const kind = u.sessionUpdate;
-            let changed = false;
-            if (kind === 'agent_thought_chunk') {
-              const text = typeof u.content?.text === 'string' ? u.content.text : '';
-              if (text) {
-                state.assistantReasoning += text;
-                changed = true;
-              }
-            } else if (kind === 'agent_message_chunk') {
-              const text = typeof u.content?.text === 'string' ? u.content.text : '';
-              if (text) {
-                state.assistantText += text;
-                changed = true;
-              }
-            } else if (kind === 'tool_call' || kind === 'tool_call_update') {
-              const callId = String(u.toolCallId || u.id || `acp-tool-${state.toolCalls.length}`);
-              const toolName = normalizeCliToolName(u.name || u.title || 'tool');
-              const rawArgs = u.args ?? u.rawInput;
-              const argsStr = rawArgs === undefined
-                ? undefined
-                : (typeof rawArgs === 'string' ? rawArgs : JSON.stringify(rawArgs));
-              const idx = state.toolCalls.findIndex((t) => t.id === callId);
-              if (idx >= 0) {
-                const prev = state.toolCalls[idx];
-                state.toolCalls[idx] = {
-                  ...prev,
-                  ...(u.name ? { name: toolName } : {}),
-                  ...(argsStr !== undefined ? { arguments: argsStr } : {}),
-                  ...(typeof u.status === 'string' ? { status: u.status } : {}),
-                };
-              } else {
-                state.toolCalls.push({
-                  id: callId,
-                  name: toolName,
-                  arguments: argsStr ?? '{}',
-                  status: typeof u.status === 'string' ? u.status : 'in_progress',
-                });
-              }
-              changed = true;
-            }
-            if (changed) {
-              state.updatedAt = Date.now();
-              this._notifyState(state);
-            }
-          },
-        });
-        state.exitCode = 0;
-      } catch (err) {
-        if (state.running) {
-          const msg = String(err?.message || err || 'Antigravity ACP prompt failed');
-          state.errorText += (state.errorText ? '\n' : '') + msg;
-          state.exitCode = -1;
-        }
-      } finally {
-        state.running = false;
-        state.updatedAt = Date.now();
-        this._notifyState(state, { immediate: true });
-      }
-    };
-
-    void runAsync();
+    void this._executeAntigravityAcpIntoState(state, {
+      cliSessionArgId,
+      handoff,
+      cwd,
+      rawPrompt,
+      attachments,
+      model,
+      reasoningEffort,
+    });
 
     return {
       ok: true,
@@ -895,15 +1157,43 @@ export class CliRunManager {
   }
 
   /**
-   * 停止正在运行的 CLI 子进程（ACP 模式发送优雅取消，不杀死常驻进程）。
+   * 停止正在运行的 CLI / 桌面端任务（ACP 发送优雅取消，Desktop CDP 点击停止按钮）。
    *
    * @param {string} engine
    * @param {string} rawId
    * @returns {boolean}
    */
   abortRun(engine, rawId) {
-    const state = this._runs.get(`${engine}:${rawId}`);
-    if (!state || !state.running) return false;
+    let state = this._runs.get(`${engine}:${rawId}`);
+    if (!state || !state.running) {
+      for (const candidate of this._runs.values()) {
+        if (candidate.engine === engine && candidate.running && candidate.resolvedRawId === rawId) {
+          state = candidate;
+          break;
+        }
+      }
+    }
+    if (!state || !state.running) {
+      if (
+        engine === 'antigravity' &&
+        this._desktopCdp &&
+        this._desktopCdp.enabled !== false &&
+        this._desktopCdp.isAvailableSync() === true &&
+        this._isIdeOnlyAntigravitySession(rawId)
+      ) {
+        void this._desktopCdp.abort(rawId).catch(() => {});
+        return true;
+      }
+      return false;
+    }
+    if (state.mode === 'desktop-cdp' && this._desktopCdp) {
+      state._abortController?.abort();
+      void this._desktopCdp.abort(state.resolvedRawId || rawId).catch(() => {});
+      state.running = false;
+      state.updatedAt = Date.now();
+      this._notifyState(state, { immediate: true });
+      return true;
+    }
     if (state.mode === 'acp' && this._acp) {
       this._acp.cancel(state.resolvedRawId || rawId);
       state.running = false;
@@ -959,7 +1249,7 @@ export class CliRunManager {
   }
 
   /**
-   * 销毁时清理全部尚未退出的子进程、常驻 ACP 客户端与事件定时器。
+   * 销毁时清理全部尚未退出的子进程、常驻 ACP 客户端、桌面 CDP 客户端与事件定时器。
    */
   dispose() {
     for (const timer of this._notifyTimers.values()) {
@@ -967,8 +1257,8 @@ export class CliRunManager {
     }
     this._notifyTimers.clear();
     this._listeners.clear();
-    this._acp?.dispose();
     for (const state of this._runs.values()) {
+      state._abortController?.abort();
       if (state.running && state.child) {
         try {
           state.child.kill();
@@ -977,6 +1267,8 @@ export class CliRunManager {
         }
       }
     }
+    this._acp?.dispose();
+    this._desktopCdp?.dispose();
     this._runs.clear();
   }
 }
