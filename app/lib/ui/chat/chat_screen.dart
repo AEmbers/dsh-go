@@ -779,6 +779,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       }
     }
 
+    // 外部智能体新对话：直接在当前激活的外部 CLI 引擎下创建会话并跳转至实时对话页
+    if (ref.read(currentSessionProvider) == null && ref.read(activeWorkbenchEngineProvider) != CliEngine.dsh) {
+      final activeEngine = ref.read(activeWorkbenchEngineProvider);
+      final pendingModel = ref.read(pendingModelProvider);
+      final workspace = ref.read(selectedWorkspaceProvider) ?? ref.read(recentWorkspaceForNewChatProvider);
+      final cwd = workspace?.path;
+      setState(() => _drafts = const []);
+      ref.read(readAloudProvider.notifier).stop();
+      _input.clear();
+      ref.read(composerQuoteProvider.notifier).clear(_draftKey);
+      try {
+        final uploadedIds = <String>[];
+        for (final att in drafts) {
+          final uploaded = await client.uploadWorkbenchBridgeAttachment(
+            name: att.name,
+            mediaType: att.mediaType ?? 'application/octet-stream',
+            bytes: att.bytes,
+          );
+          if (!ownsDraft()) return;
+          uploadedIds.add(uploaded.uploadId);
+        }
+        final created = await client.sendWorkbenchBridgePrompt(
+          engine: activeEngine,
+          rawSessionId: null,
+          cwd: cwd,
+          prompt: text,
+          model: pendingModel?.model,
+          reasoningEffort: pendingModel?.reasoningEffort,
+          attachmentIds: uploadedIds,
+        );
+        if (!ownsDraft()) return;
+        ref.read(pendingModelProvider.notifier).select(null);
+        unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+        if (pendingModel != null) {
+          unawaited(ref.read(chatProvider(created.sessionId).notifier).setModel(pendingModel));
+        }
+        ref.read(currentSessionProvider.notifier).select(created.sessionId);
+      } catch (error) {
+        if (ownsDraft()) {
+          _giveBack(_draftKey, typed, drafts, quote: quote);
+          _toast(error.toString());
+        }
+      }
+      return;
+    }
+
     final sessionId = await _ensureSession(isCurrent: ownsDraft);
     if (sessionId == null || !ownsDraft() || _draftKey != sessionId) return;
     final chat = ref.read(chatProvider(sessionId).notifier);
@@ -1722,7 +1768,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
             mergedSessionsProvider.select((async) => async.value?.where((s) => s.sessionId == sessionId).firstOrNull),
           );
     final listedTitle = listedSession?.title;
-    final currentEngine = listedSession?.cliEngine ?? CliSessionRef.parse(sessionId)?.engine ?? CliEngine.dsh;
+    final activeWorkbenchEngine = ref.watch(activeWorkbenchEngineProvider);
+    final currentEngine = sessionId != null
+        ? (listedSession?.cliEngine ?? CliSessionRef.parse(sessionId)?.engine ?? CliEngine.dsh)
+        : activeWorkbenchEngine;
     final pendingModel = ref.watch(pendingModelProvider);
     final newFolder = sessionId == null
         ? ref.watch(drawerViewProvider).byId(ref.watch(pendingSessionFolderProvider))
@@ -1859,7 +1908,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
       generate: readOnly ? null : generate,
       risk: !pillsBesideStrip,
     );
-    final workbench = !typing && !isChild;
+    final workbench = !shortWindow && !isChild;
     final cli = workbench && ref.watch(workbenchSurfaceProvider) == WorkbenchSurface.cli;
     final headerHeight = workbench
         ? WorkbenchChrome.extentOf(context) + ChatHeader.barHeightOf(context)
@@ -1921,7 +1970,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                     // own (a remote host has its own errors).
                                     if (failureCard)
                                       const EngineFailureCard(padding: EdgeInsets.fromLTRB(16, 0, 16, 20)),
-                                    ChatEmptyState(
+                                    if (currentEngine != CliEngine.dsh)
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            CliEngineIcon(engine: currentEngine, size: 40),
+                                            const SizedBox(height: 14),
+                                            Text(
+                                              AppLocale.isEnglish
+                                                  ? '${currentEngine.label} New Chat'
+                                                  : '${currentEngine.label} 新对话',
+                                              style: Theme.of(context).textTheme.headlineSmall,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              AppLocale.isEnglish
+                                                  ? 'Pick a model above or type below to start a ${currentEngine.label} session'
+                                                  : '在上方选择模型或直接输入消息，开始新的 ${currentEngine.label} 对话',
+                                              textAlign: TextAlign.center,
+                                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    else
+                                      ChatEmptyState(
                                       compact: shortWindow,
                                       connected: connected,
                                       suggestions: ref.watch(settingsProvider.select((s) => s.chatSuggestions))
@@ -2045,6 +2122,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       selection: sessionId == null ? pendingModel : chat?.model,
                                       onSelected: _modelTarget(),
                                       grouped: true,
+                                      cliEngine: currentEngine,
                                     ),
                                   ),
                                   const WorkbenchModeBar(),
@@ -2082,6 +2160,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       selection: sessionId == null ? pendingModel : chat?.model,
                                       onSelected: _modelTarget(),
                                       grouped: true,
+                                      cliEngine: currentEngine,
                                     ),
                             ),
                     ),
@@ -2387,6 +2466,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                           ? ComposerModelPill(
                                               selection: sessionId == null ? pendingModel : chat?.model,
                                               onSelected: _modelTarget(),
+                                              cliEngine: currentEngine,
                                             )
                                           : null,
                                       tray: ComposerTrayStack.maybe(

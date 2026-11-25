@@ -12,11 +12,13 @@ import 'carrier.dart';
 import 'session_activation.dart';
 import 'connection.dart';
 import 'errors.dart';
+import 'files_api.dart';
 import 'json.dart';
 import 'models.dart';
 import 'mux.dart';
 import 'rpc.dart';
 import 'rpc_envelope.dart';
+import 'workbench_bridge_api.dart';
 import 'workspace_upload.dart';
 
 /// `queue` waits for the next turn; `steer` injects into the running turn's
@@ -555,6 +557,10 @@ class DshClient {
     String sessionId,
     ImageAttachment reference,
   ) async {
+    if (CliSessionRef.parse(sessionId) != null) {
+      final bytes = await readFileBytes(sessionId, reference.attachmentId, maxBytes: 20 * 1024 * 1024);
+      return (attachment: reference, bytes: bytes);
+    }
     final generation = mux.generation;
     if (generation == null || !identical(generation, _attachmentReferenceGeneration)) {
       _attachmentReferenceSupported = null;

@@ -55,9 +55,13 @@ const _remotePdfBytes = 64 * 1024 * 1024;
 
 /// [path] 所在的目录;没有目录部分时为 null(交给会话的工作目录)。
 String? _folderOf(String path) {
-  final cut = path.lastIndexOf('/');
+  final cut = path.lastIndexOf(RegExp(r'[/\\]'));
   if (cut < 0) return null;
-  return cut == 0 ? '/' : path.substring(0, cut);
+  if (cut == 0) return '/';
+  if (cut == 2 && RegExp(r'^[A-Za-z]:$').hasMatch(path.substring(0, 2))) {
+    return path.substring(0, 3);
+  }
+  return path.substring(0, cut);
 }
 
 String _extensionOf(String path) {
@@ -193,7 +197,11 @@ Future<void> runArtifactAction(
 /// [artifact] with an absolute path (the Host resolves a relative one).
 Future<Artifact> _absolute(WidgetRef ref, String sessionId, Artifact artifact) async {
   // A historical image must remain readable even after its source was deleted.
-  if (artifact.snapshotImage || artifact.path.startsWith('/')) return artifact;
+  if (artifact.snapshotImage ||
+      artifact.path.startsWith('/') ||
+      RegExp(r'^[A-Za-z]:[\\/]').hasMatch(artifact.path)) {
+    return artifact;
+  }
   final source = ref.read(workspaceSourceProvider(sessionId));
   if (source == null) throw const ArtifactError('offline');
   final stat = await source.stat(artifact.path);

@@ -7,6 +7,7 @@ import 'package:dsh_app/state/adaptive_layout_state.dart';
 import 'package:dsh_app/state/sessions_state.dart';
 import 'package:dsh_app/state/terminal_state.dart';
 import 'package:dsh_app/state/workbench_state.dart';
+import 'package:dsh_client/dsh_client.dart' show CliEngine;
 import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/composer.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
@@ -70,7 +71,8 @@ void main() {
     expect(tabsRect.bottom, lessThanOrEqualTo(pillRect.top + 1));
     expect(modeRect.top, greaterThan(pillRect.bottom - 1));
     expect(find.descendant(of: find.byKey(const ValueKey('workbench-tab-count')), matching: find.text('1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workbench-tab-running-s1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-engine-tab-dsh')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-engine-running-dsh')), findsOneWidget);
 
     await tester.tap(find.descendant(of: find.byKey(const ValueKey('drawer-list-scope')), matching: find.text('进行中')));
     await tester.pump();
@@ -79,12 +81,11 @@ void main() {
 
     final container = ProviderScope.containerOf(tester.element(find.byType(ChatScreen)));
     expect(container.read(sessionsProvider).value!.map((s) => s.sessionId), contains('s1'));
-    await tester.tap(find.byKey(const ValueKey('workbench-tab-close-s1')));
+    await tester.tap(find.byKey(const ValueKey('workbench-new-chat')));
     await tester.pump();
     expect(container.read(currentSessionProvider), isNull);
-    expect(container.read(openSessionTabsProvider), isEmpty);
     expect(container.read(sessionsProvider).value!.map((s) => s.sessionId), contains('s1'));
-    expect(find.byKey(const ValueKey('workbench-tab-new')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-engine-tab-dsh')), findsOneWidget);
 
     await tester.tap(find.descendant(of: find.byKey(const ValueKey('workbench-mode')), matching: find.text('CLI')));
     await tester.pump();
@@ -92,22 +93,20 @@ void main() {
     expect(find.byType(TerminalPage), findsNothing);
   });
 
-  testWidgets('unselected running tabs show a busy dot and the count menu switches tabs', (tester) async {
+  testWidgets('agent count badge menu switches active engine', (tester) async {
     await _pump(tester, _wide);
     final container = ProviderScope.containerOf(tester.element(find.byType(ChatScreen)));
-    container.read(openSessionTabsProvider.notifier).newChat();
+    container.read(activeWorkbenchEngineProvider.notifier).newChat();
     await tester.pump();
 
-    expect(find.descendant(of: find.byKey(const ValueKey('workbench-tab-count')), matching: find.text('2')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workbench-tab-running-s1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('workbench-tab-close-s1')), findsNothing);
+    expect(find.descendant(of: find.byKey(const ValueKey('workbench-tab-count')), matching: find.text('1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('workbench-engine-running-dsh')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('workbench-tab-count')));
     await pumpFrames(tester, 6);
-    await tester.tap(find.byKey(const ValueKey('workbench-tab-menu-s1')));
+    await tester.tap(find.byKey(const ValueKey('workbench-engine-menu-dsh')));
     await pumpFrames(tester, 6);
-    expect(container.read(currentSessionProvider), 's1');
-    expect(find.byKey(const ValueKey('workbench-tab-close-s1')), findsOneWidget);
+    expect(container.read(activeWorkbenchEngineProvider), CliEngine.dsh);
   });
 
   testWidgets('CLI uses the session terminal and does not offer a back route', (tester) async {

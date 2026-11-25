@@ -68,9 +68,10 @@ export function toEpochMs(value) {
 export function unwrapUserRequest(raw) {
   if (typeof raw !== 'string') return '';
   const match = raw.match(/<USER_REQUEST>\s*([\s\S]*?)\s*<\/USER_REQUEST>/);
-  if (match) return match[1].trim();
-  const stripped = raw.replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, '').trim();
-  return stripped;
+  const inner = match
+    ? match[1]
+    : raw.replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, '');
+  return inner.replace(/<HANDOFF_CONTEXT>[\s\S]*?<\/HANDOFF_CONTEXT>\s*/g, '').trim();
 }
 
 /**

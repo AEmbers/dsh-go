@@ -162,6 +162,236 @@ void main() {
     final client = await connect();
     await expectLater(client.readWorkbenchBridgeSessions(), throwsA(isA<WorkbenchBridgeUnavailableException>()));
   });
+
+  test('supports non-HTTP RPC bridge carrier and maps METHOD_NOT_FOUND cleanly', () async {
+    final carrier = _FakeRpcCarrier((method, params) async {
+      return switch (method) {
+        'workbench.bridge.health' => {
+          'ok': true,
+          'engines': {
+            'codex': {'installed': true, 'executable': 'codex'},
+          },
+        },
+        'workbench.bridge.sessions' when params['ifNoneMatch'] == '"e1"' => {'ok': true, 'notModified': true, 'etag': '"e1"'},
+        'workbench.bridge.sessions' => {
+          'ok': true,
+          'etag': '"e1"',
+          'sessions': [
+            {
+              'engine': 'codex',
+              'rawId': 'cx-1',
+              'sessionId': 'cli:codex:cx-1',
+              'title': 'Codex Remote Task',
+              'updatedAt': 1795424852000,
+              'running': true,
+            },
+          ],
+        },
+        'workbench.bridge.messages' => {
+          'ok': true,
+          'engine': 'codex',
+          'rawId': 'cx-1',
+          'sessionId': 'cli:codex:cx-1',
+          'running': false,
+          'messages': const <Object?>[],
+        },
+        'workbench.bridge.prompt' => {
+          'ok': true,
+          'sessionId': 'cli:codex:cx-1',
+          'rawId': 'cx-1',
+          'runId': 'run-1',
+          'running': true,
+        },
+        'workbench.bridge.models' => {
+          'ok': true,
+          'engine': params['engine'],
+          'default': {'provider': 'gemini', 'model': 'gemini-4-neon', 'reasoningEffort': 'high'},
+          'routableProviders': ['gemini'],
+          'groups': [
+            {
+              'id': 'gemini',
+              'name': 'Gemini',
+              'models': [
+                {
+                  'id': 'gemini-4-neon',
+                  'name': 'Gemini 4 Neon',
+                  'reasoning': {
+                    'efforts': [
+                      {'id': 'medium', 'name': 'Medium'},
+                      {'id': 'high', 'name': 'High'},
+                    ],
+                    'defaultEffort': 'high',
+                  },
+                },
+              ],
+            },
+          ],
+          'failures': const <Object?>[],
+        },
+        'workbench.bridge.upload' => {
+          'ok': true,
+          'uploadId': params['uploadId'] ?? 'up-rpc-1',
+          'name': params['name'] ?? 'pic.png',
+          'mediaType': params['mediaType'] ?? 'image/png',
+          'bytes': (params['offset'] as int? ?? 0) + (base64Decode(params['chunkBase64'] as String).length),
+          'done': params['done'] == true,
+        },
+        'workbench.bridge.abort' => {'ok': true, 'aborted': true},
+        _ => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing'),
+      };
+    });
+    final client = await DshClient.connectCarrier(carrier, startMux: false);
+    addTearDown(client.close);
+
+    final health = await client.readWorkbenchBridgeHealth();
+    expect(health.engines[CliEngine.codex]?.installed, isTrue);
+
+    final res = await client.readWorkbenchBridgeSessions();
+    expect(res?.etag, '"e1"');
+    expect(res?.sessions.single.cliEngineOrDefault, CliEngine.codex);
+
+    expect(await client.readWorkbenchBridgeSessions(ifNoneMatch: '"e1"'), isNull);
+    expect((await client.readWorkbenchBridgeMessages(CliEngine.codex, 'cx-1')).engine, CliEngine.codex);
+    expect((await client.sendWorkbenchBridgePrompt(engine: CliEngine.codex, rawSessionId: 'cx-1', prompt: 'hi')).running, isTrue);
+    expect(await client.abortWorkbenchBridgeRun(CliEngine.codex, 'cx-1'), isTrue);
+
+    final models = await client.readWorkbenchBridgeModels(CliEngine.antigravity);
+    expect(models.groups.single.id, 'gemini');
+    expect(models.groups.single.models.single.id, 'gemini-4-neon');
+    expect(models.groups.single.models.single.efforts.map((e) => e.id), ['medium', 'high']);
+    expect(models.defaultSelection?.reasoningEffort, 'high');
+
+    final bigBytes = Uint8List.fromList(List<int>.filled(250 * 1024, 7));
+    final uploaded = await client.uploadWorkbenchBridgeAttachment(
+      name: 'big.png',
+      mediaType: 'image/png',
+      bytes: bigBytes,
+    );
+    expect(uploaded.uploadId, 'up-rpc-1');
+    expect(uploaded.bytes, bigBytes.length);
+
+    final withAttachment = await client.sendWorkbenchBridgePrompt(
+      engine: CliEngine.antigravity,
+      rawSessionId: 'agy-1',
+      prompt: '',
+      model: 'gemini-4-neon',
+      reasoningEffort: 'high',
+      attachmentIds: [uploaded.uploadId],
+    );
+    expect(withAttachment.running, isTrue);
+
+    final unavailableClient = await DshClient.connectCarrier(
+      _FakeRpcCarrier((method, params) async => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing')),
+      startMux: false,
+    );
+    addTearDown(unavailableClient.close);
+    await expectLater(unavailableClient.readWorkbenchBridgeSessions(), throwsA(isA<WorkbenchBridgeUnavailableException>()));
+  });
+
+  test('routes cli:* file stat/read/list/attachment to workbench.bridge.file.* and normalizes /C:/ paths', () async {
+    expect(
+      resolveSessionPath('/C:/Users/Administrator/verify-fix-codex-models.png'),
+      'C:/Users/Administrator/verify-fix-codex-models.png',
+    );
+    expect(
+      resolveSessionPath('file:///C:/Users/Administrator/verify-fix-codex-models.png'),
+      'C:/Users/Administrator/verify-fix-codex-models.png',
+    );
+
+    final sampleBytes = Uint8List.fromList([1, 2, 3, 4, 5]);
+    final carrier = _FakeRpcCarrier((method, params) async {
+      return switch (method) {
+        'workbench.bridge.file.stat' => {
+          'ok': true,
+          'absolutePath': params['path'],
+          'version': '1:2:5:100:100',
+          'bytes': sampleBytes.length,
+        },
+        'workbench.bridge.file.readBytes' => {
+          'ok': true,
+          'data': base64Encode(sampleBytes),
+          'eof': true,
+          'offset': 0,
+          'absolutePath': params['path'],
+          'version': '1:2:5:100:100',
+          'bytes': sampleBytes.length,
+        },
+        'workbench.bridge.file.readText' => {
+          'ok': true,
+          'text': 'hello\nworld',
+          'lines': 2,
+          'eof': true,
+          'offset': 1,
+          'absolutePath': params['path'],
+          'version': '1:2:11:100:100',
+          'bytes': 11,
+        },
+        'workbench.bridge.file.list' => {
+          'ok': true,
+          'path': '',
+          'entries': [
+            {'name': 'models.js', 'type': 'file', 'size': 123},
+          ],
+          'truncated': false,
+        },
+        _ => throw const DshRemoteException('METHOD_NOT_FOUND', 'missing'),
+      };
+    });
+    final client = await DshClient.connectCarrier(carrier, startMux: false);
+    addTearDown(client.close);
+
+    const cliSession = 'cli:antigravity:conv-1';
+    final stat = await client.statFile(cliSession, 'C:/tmp/a.png');
+    expect(stat.bytes, sampleBytes.length);
+
+    final bytes = await client.readFileBytes(cliSession, 'C:/tmp/a.png');
+    expect(bytes, sampleBytes);
+
+    final text = await client.readWorkspaceText(cliSession, 'C:/tmp/a.txt');
+    expect(text.text, 'hello\nworld');
+
+    final listed = await client.listWorkspace(cliSession, '');
+    expect(listed.entries.single.name, 'models.js');
+
+    final att = await client.attachment(
+      cliSession,
+      const ImageAttachment(attachmentId: 'wb-file:C:/tmp/a.png', mediaType: 'image/png'),
+    );
+    expect(att.bytes, sampleBytes);
+  });
+}
+
+extension _SessionEngineX on WorkbenchCliSession {
+  CliEngine get cliEngineOrDefault => engine;
+}
+
+class _FakeRpcCarrier extends DshCarrier {
+  _FakeRpcCarrier(this._onBridgeRpc);
+
+  final Future<Map<String, Object?>?> Function(String method, Map<String, Object?> params) _onBridgeRpc;
+
+  @override
+  String get kind => 'fake-remote-rpc';
+
+  @override
+  DshTracer? get tracer => null;
+
+  @override
+  Future<RpcResult> call(String endpoint, Map<String, Object?> args, {Duration? timeout}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<DshMuxLink> openLink(MuxOptions options) => throw UnimplementedError();
+
+  @override
+  Future<Map<String, Object?>?> invokeWorkbenchBridgeRpc(
+    String method, [
+    Map<String, Object?> params = const {},
+    Duration? timeout,
+  ]) => _onBridgeRpc(method, params);
+
+  @override
+  Future<void> close() async {}
 }
 
 class _MockRequest {

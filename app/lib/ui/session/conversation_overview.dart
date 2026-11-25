@@ -31,6 +31,7 @@ class ConversationOverview extends ConsumerWidget {
     showModelSheet(
       context,
       current: current,
+      cliEngine: CliSessionRef.parse(sessionId)?.engine,
       onSelected: (selection) {
         if (!identical(ref.read(modelSelectionScopeProvider), scope) ||
             !identical(ref.read(activeConnectionProvider).value?.client, client) ||

@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/l10n.dart';
 import '../../state/models_state.dart';
 import '../../state/settings_state.dart';
+import '../../state/workbench_bridge_state.dart';
 import '../common/app_sheet.dart';
 import '../common/empty_view.dart';
 import '../common/pressable.dart';
@@ -56,27 +57,35 @@ String effortLabel(String id, [String? fallback]) => switch (id) {
   'high' => appL10n.viewModelThinkingHigh,
   'xhigh' => appL10n.viewModelThinkingXhigh,
   'max' => appL10n.viewModelThinkingMax,
+  'ultra' => AppLocale.isEnglish ? 'Ultra' : '极限',
   _ => fallback ?? id,
 };
 
 /// The model in a phone's open composer: a plain pill beside the +, the same weight as
 /// it, saying what this message goes out with and a tap from changing it.
 class ComposerModelPill extends ConsumerWidget {
-  const ComposerModelPill({super.key, required this.selection, required this.onSelected});
+  const ComposerModelPill({super.key, required this.selection, required this.onSelected, this.cliEngine});
 
   final ModelSelection? selection;
   final ValueChanged<ModelSelection> onSelected;
+  final CliEngine? cliEngine;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final catalog = ref.watch(currentModelCatalogProvider);
-    final effective = selection ?? catalog?.defaultSelection;
+    final external = cliEngine != null && cliEngine != CliEngine.dsh;
+    final catalog = external
+        ? ref.watch(workbenchBridgeModelsProvider(cliEngine!)).value
+        : ref.watch(currentModelCatalogProvider);
+    final normalizedSelection = external && selection != null && findModel(catalog, selection) == null
+        ? resolveCliModelSelection(catalog, selection!.model, cliEngine!)
+        : selection;
+    final effective = normalizedSelection ?? catalog?.defaultSelection;
     final effort = effective?.reasoningEffort;
     final name = modelShortName(effective, catalog);
-    void open() => showModelSheet(context, current: effective, onSelected: onSelected);
+    void open() => showModelSheet(context, current: effective, onSelected: onSelected, cliEngine: cliEngine);
     return Semantics(
       button: true,
       label: [
@@ -121,12 +130,19 @@ class ComposerModelPill extends ConsumerWidget {
 /// ✦ 和 ⌄。给多宽由顶栏量了再定([ChatHeader]),胶囊自己不猜屏宽:它的
 /// 最小固有宽度是「完整模型名、不带深度」,最大固有宽度是「名字加深度」。
 class ModelChip extends ConsumerWidget {
-  const ModelChip({super.key, required this.selection, required this.onSelected, this.grouped = false});
+  const ModelChip({
+    super.key,
+    required this.selection,
+    required this.onSelected,
+    this.grouped = false,
+    this.cliEngine,
+  });
 
   /// 当前生效的选择;null 时显示目录默认值。
   final ModelSelection? selection;
   final ValueChanged<ModelSelection> onSelected;
   final bool grouped;
+  final CliEngine? cliEngine;
 
   // The chevron's glyph carries ~4 of its own air on the right: 12 + 0 on
   // the left reads the same as 8 + 4 on the right.
@@ -141,14 +157,20 @@ class ModelChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final catalog = ref.watch(currentModelCatalogProvider);
-    final effective = selection ?? catalog?.defaultSelection;
+    final external = cliEngine != null && cliEngine != CliEngine.dsh;
+    final catalog = external
+        ? ref.watch(workbenchBridgeModelsProvider(cliEngine!)).value
+        : ref.watch(currentModelCatalogProvider);
+    final normalizedSelection = external && selection != null && findModel(catalog, selection) == null
+        ? resolveCliModelSelection(catalog, selection!.model, cliEngine!)
+        : selection;
+    final effective = normalizedSelection ?? catalog?.defaultSelection;
     final effort = effective?.reasoningEffort;
     final label = modelShortName(effective, catalog);
     final quick = AppMotion.of(context, AppMotion.quick);
     final em = MediaQuery.textScalerOf(context).scale(13);
     final style = theme.textTheme.labelMedium?.copyWith(fontSize: 13);
-    void open() => showModelSheet(context, current: effective, onSelected: onSelected);
+    void open() => showModelSheet(context, current: effective, onSelected: onSelected, cliEngine: cliEngine);
     return GlassSurface(
       tier: GlassTier.chrome,
       // Built by the screen, not by the header, so it asks for the header's glass itself.
@@ -398,36 +420,32 @@ Future<void> showModelSheet(
   required ModelSelection? current,
   required ValueChanged<ModelSelection> onSelected,
   bool confirmSelection = false,
+  CliEngine? cliEngine,
 }) {
   return showAppSheet<void>(
     context,
     isScrollControlled: true,
-    builder: (context) => _ModelSheet(current: current, onSelected: onSelected, confirmSelection: confirmSelection),
+    builder: (context) => _ModelSheet(
+      current: current,
+      onSelected: onSelected,
+      confirmSelection: confirmSelection,
+      cliEngine: cliEngine,
+    ),
   );
 }
 
-/// ```
-///                    ───
-///   选择模型                               (×)
-///
-///   ((  DeepSeek  )   OpenRouter            )    渠道多于一个时
-///
-///   ╭─────────────────╮  ╭─────────────────╮
-///   │ V4 Pro       (✓)│  │ V41 Flash    ( )│
-///   │ 更强的推理与编码  │  │ 更快、更省        │
-///   ╰─────────────────╯  ╰─────────────────╯
-///
-///   思考深度
-///   (( 不思考 )  低      ( 高 )     最高   )
-/// ```
-///
-/// 渠道条只是筛选,不改当前选择;打开时停在当前模型所在的渠道。
 class _ModelSheet extends ConsumerStatefulWidget {
-  const _ModelSheet({required this.current, required this.onSelected, required this.confirmSelection});
+  const _ModelSheet({
+    required this.current,
+    required this.onSelected,
+    required this.confirmSelection,
+    this.cliEngine,
+  });
 
   final ModelSelection? current;
   final ValueChanged<ModelSelection> onSelected;
   final bool confirmSelection;
+  final CliEngine? cliEngine;
 
   @override
   ConsumerState<_ModelSheet> createState() => _ModelSheetState();
@@ -451,10 +469,20 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
     super.dispose();
   }
 
-  void _pickModel(ModelInfo model) {
+  bool get _isExternalCli => widget.cliEngine != null && widget.cliEngine != CliEngine.dsh;
+
+  ModelCatalog? _currentCatalog() {
+    if (_isExternalCli) {
+      return ref.read(workbenchBridgeModelsProvider(widget.cliEngine!)).value;
+    }
     final view = ref.read(modelListViewProvider);
-    if (!_active || view.readOnly) return;
-    final available = findModel(view.value, ModelSelection(provider: model.provider, model: model.id));
+    return view.readOnly ? null : view.value;
+  }
+
+  void _pickModel(ModelInfo model) {
+    final catalog = _currentCatalog();
+    if (!_active || catalog == null) return;
+    final available = findModel(catalog, ModelSelection(provider: model.provider, model: model.id));
     if (available == null || !identical(available, model)) return;
     final keep = _selection?.reasoningEffort;
     final supported = model.efforts.any((e) => e.id == keep);
@@ -471,11 +499,11 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
   }
 
   void _pickEffort(String effort) {
-    final view = ref.read(modelListViewProvider);
-    if (!_active || view.readOnly) return;
+    final catalog = _currentCatalog();
+    if (!_active || catalog == null) return;
     final current = _selection;
     if (current == null) return;
-    final available = findModel(view.value, current);
+    final available = findModel(catalog, current);
     if (available == null || !available.efforts.any((entry) => entry.id == effort)) return;
     final next = ModelSelection(provider: current.provider, model: current.model, reasoningEffort: effort);
     setState(() => _selection = next);
@@ -491,9 +519,12 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final catalogAsync = ref.watch(modelCatalogProvider);
-    final view = ref.watch(modelListViewProvider);
-    final catalog = view.value;
+    final external = _isExternalCli;
+    final AsyncValue<ModelCatalog?> catalogAsync = external
+        ? ref.watch(workbenchBridgeModelsProvider(widget.cliEngine!))
+        : ref.watch(modelCatalogProvider);
+    final view = external ? null : ref.watch(modelListViewProvider);
+    final catalog = external ? catalogAsync.value : view!.value;
     final active = identical(_scope, ref.watch(modelSelectionScopeProvider));
 
     final Widget body;
@@ -507,7 +538,9 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
               icon: AppIcons.offline,
               title: l10n.viewModelLoadFailed,
               action: FilledButton.tonal(
-                onPressed: () => ref.invalidate(modelCatalogProvider),
+                onPressed: () => ref.invalidate(
+                  external ? workbenchBridgeModelsProvider(widget.cliEngine!) : modelCatalogProvider,
+                ),
                 child: Text(l10n.commonRetry),
               ),
             )
@@ -525,14 +558,19 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
       if (groups.isEmpty) {
         body = _EmptyCatalog(
           // A failing provider counts: something is set up, just not working.
-          configured: ref.watch(settingsProvider.select((s) => s.hasModelAccess)) || catalog.failures.isNotEmpty,
+          configured: !external && ref.watch(settingsProvider.select((s) => s.hasModelAccess)) || catalog.failures.isNotEmpty,
           failure: catalog.failures.isEmpty ? null : catalog.failures.first.message,
         );
       } else {
         picking = true;
-        body = _picker(groups, findModel(catalog, _selection), readOnly: view.readOnly || !active);
+        final readOnly = (external ? false : view!.readOnly) || !active;
+        body = _picker(groups, findModel(catalog, _selection), readOnly: readOnly);
       }
     }
+
+    final sheetTitle = external
+        ? '${widget.cliEngine!.label} 模型'
+        : (catalog == null ? l10n.viewModelSelect : readListHeading(l10n.viewModelSelect, view!.status));
 
     final sheet = SafeArea(
       top: false,
@@ -542,7 +580,7 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            SheetTitleBar(catalog == null ? l10n.viewModelSelect : readListHeading(l10n.viewModelSelect, view.status)),
+            SheetTitleBar(sheetTitle),
             body,
             if (picking && widget.confirmSelection && !isValidModelSelection(catalog, _selection))
               Padding(
@@ -553,13 +591,13 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(SheetTitleBar.inset, 20, SheetTitleBar.inset, 0),
                 child: FilledButton(
-                  onPressed: !active || view.readOnly || !isValidModelSelection(catalog, _selection)
+                  onPressed: !active || (!external && view!.readOnly) || !isValidModelSelection(catalog, _selection)
                       ? null
                       : () {
-                          final currentView = ref.read(modelListViewProvider);
+                          final currentCatalog = _currentCatalog();
                           if (!_active ||
-                              currentView.readOnly ||
-                              !isValidModelSelection(currentView.value, _selection)) {
+                              currentCatalog == null ||
+                              !isValidModelSelection(currentCatalog, _selection)) {
                             return;
                           }
                           widget.onSelected(_selection!);
@@ -568,8 +606,8 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
                   child: Text(l10n.commonSave),
                 ),
               ),
-            // 「管理模型 ›」: 设置 › 模型, over the sheet (back returns here).
-            if (picking) ...[const SizedBox(height: 12), const ManageModelsLink()],
+            // 「管理模型 ›」仅属于 DSH 原生模型目录
+            if (picking && !external) ...[const SizedBox(height: 12), const ManageModelsLink()],
           ],
         ),
       ),
@@ -645,7 +683,7 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
                               ? null
                               : (effort) {
                                   if (identical(
-                                    findModel(ref.read(modelListViewProvider).value, _selection),
+                                    findModel(_currentCatalog(), _selection),
                                     selected,
                                   )) {
                                     _pickEffort(effort);

@@ -21,6 +21,7 @@ import 'carrier.dart';
 import 'errors.dart';
 import 'json.dart';
 import 'session_api.dart';
+import 'workbench_bridge_api.dart';
 
 /// One regular file as the Host sees it (`workspaceFiles/stat`).
 class DshFileStat {
@@ -52,6 +53,9 @@ extension DshFilesApi on DshClient {
   /// `workspaceFiles/stat`: [path] absolute or relative to the Session's
   /// working directory; files outside the workspace are allowed.
   Future<DshFileStat> statFile(String sessionId, String path) async {
+    if (CliSessionRef.parse(sessionId) case final cli?) {
+      return workbenchBridgeStatFile(cli, path);
+    }
     final value = await rpc.call('workspaceFiles/stat', {'workspaceFileScopeId': sessionId, 'path': path});
     return DshFileStat.fromJson(value);
   }
@@ -93,6 +97,9 @@ extension DshFilesApi on DshClient {
     void Function(int received, int? total)? onProgress,
     int? maxBytes,
   }) async {
+    if (CliSessionRef.parse(sessionId) case final cli?) {
+      return workbenchBridgeReadFile(cli, path, onChunk: onChunk, onProgress: onProgress, maxBytes: maxBytes);
+    }
     final stat = await statFile(sessionId, path);
     final total = stat.bytes;
     if (maxBytes != null && total != null && total > maxBytes) {

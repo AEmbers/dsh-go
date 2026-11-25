@@ -475,6 +475,7 @@ class ChatController extends Notifier<ChatState> {
   Timer? _cliPollTimer;
   List<ChatItem> _cliItems = const [];
   ModelSelection? _cliModel;
+  bool _cliModelPinned = false;
   String? _cliCwd;
   bool _cliRunning = false;
   _ChatOperation? _stoppingOperation;
@@ -764,33 +765,64 @@ class ChatController extends Notifier<ChatState> {
     return false;
   }
 
+  String _cliSnapshotSignature(List<ChatItem> items, bool running, ModelSelection? model) {
+    final last = items.isEmpty ? null : items.last;
+    final tail = switch (last) {
+      UserChatItem(:final text, :final files) => 'u:${text.length}:${files.length}',
+      AssistantChatItem(:final text, :final reasoning, :final streaming) =>
+        'a:${text.length}:${reasoning.length}:$streaming',
+      ToolChatItem(:final callId, :final status) => 't:$callId:${status.name}',
+      _ => 'none',
+    };
+    return '${items.length}|$running|${model?.provider}:${model?.model}:${model?.reasoningEffort}|$tail';
+  }
+
   Future<bool> _syncCliSession(DshClient client, CliSessionRef cliRef) async {
     _cliPollTimer?.cancel();
     _cliPollTimer = null;
     try {
       final snap = await client.readWorkbenchBridgeMessages(cliRef.engine, cliRef.rawId);
       if (!ref.mounted || !identical(client, _client)) return false;
-      _cliItems = cliSnapshotToChatItems(snap);
+      final nextItems = cliSnapshotToChatItems(snap);
       _cliCwd = snap.cwd ?? _cliCwd;
       _cliRunning = snap.running;
-      if (snap.model case final modelName? when modelName.isNotEmpty) {
-        _cliModel = ModelSelection(provider: cliRef.engine.wire, model: modelName);
+      if (!_cliModelPinned) {
+        if (snap.model case final modelName? when modelName.isNotEmpty) {
+          final catalog = ref.read(workbenchBridgeModelsProvider(cliRef.engine)).value;
+          _cliModel = resolveCliModelSelection(catalog, modelName, cliRef.engine);
+        }
       }
-      state = ChatState(
-        items: _cliItems,
-        running: _cliRunning,
-        loading: false,
-        resyncing: false,
-        connection: client.mux.state,
-        model: _cliModel,
-      );
-      if (_cliRunning) {
-        _cliPollTimer = Timer(const Duration(milliseconds: 900), () {
-          if (ref.mounted && identical(client, _client)) {
-            unawaited(_syncCliSession(client, cliRef));
+      final prevSig = _cliSnapshotSignature(_cliItems, state.running, state.model);
+      final nextSig = _cliSnapshotSignature(nextItems, _cliRunning, _cliModel);
+      _cliItems = nextItems;
+      if (prevSig != nextSig || state.loading || state.resyncing || state.error != null) {
+        state = ChatState(
+          items: _cliItems,
+          running: _cliRunning,
+          loading: false,
+          resyncing: false,
+          connection: client.mux.state,
+          model: _cliModel,
+        );
+      }
+      if (!_cliRunning) {
+        if (snap.resolvedSessionId case final resolved? when resolved != sessionId) {
+          unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+          if (ref.read(currentSessionProvider) == sessionId) {
+            if (_cliModel case final pinned?) {
+              unawaited(ref.read(chatProvider(resolved).notifier).setModel(pinned));
+            }
+            ref.read(currentSessionProvider.notifier).select(resolved);
+            return true;
           }
-        });
+        }
       }
+      final delay = _cliRunning ? const Duration(milliseconds: 900) : const Duration(milliseconds: 2500);
+      _cliPollTimer = Timer(delay, () {
+        if (ref.mounted && identical(client, _client)) {
+          unawaited(_syncCliSession(client, cliRef));
+        }
+      });
       return true;
     } catch (error) {
       if (!ref.mounted || !identical(client, _client)) return false;
@@ -803,21 +835,37 @@ class ChatController extends Notifier<ChatState> {
         connection: client.mux.state,
         model: _cliModel,
       );
+      _cliPollTimer = Timer(const Duration(seconds: 4), () {
+        if (ref.mounted && identical(client, _client)) {
+          unawaited(_syncCliSession(client, cliRef));
+        }
+      });
       return false;
     }
   }
 
-  Future<bool> _sendCliPrompt(DshClient client, CliSessionRef cliRef, String body) async {
+  Future<bool> _sendCliPrompt(
+    DshClient client,
+    CliSessionRef cliRef,
+    String body, {
+    List<DraftAttachment> attachments = const [],
+  }) async {
     final trimmed = body.trim();
-    if (trimmed.isEmpty) return false;
+    if (trimmed.isEmpty && attachments.isEmpty) return false;
+    final displayText = trimmed.isNotEmpty
+        ? trimmed
+        : attachments.map((a) => '[附件: ${a.name}]').join(' ');
+    final previousItems = _cliItems;
     final optimistic = [
       ..._cliItems,
       UserChatItem(
         seq: _cliItems.length + 1,
         time: DateTime.now(),
-        text: trimmed,
+        text: displayText,
         images: const [],
-        files: const [],
+        files: [
+          for (final a in attachments) FileAttachment(name: a.name, bytes: a.bytes.length),
+        ],
       ),
     ];
     _cliItems = optimistic;
@@ -830,25 +878,58 @@ class ChatController extends Notifier<ChatState> {
       model: _cliModel,
     );
     try {
-      await client.sendWorkbenchBridgePrompt(
+      final uploadedIds = <String>[];
+      for (final att in attachments) {
+        final uploaded = await client.uploadWorkbenchBridgeAttachment(
+          name: att.name,
+          mediaType: att.mediaType ?? 'application/octet-stream',
+          bytes: att.bytes,
+        );
+        if (!ref.mounted || !identical(client, _client)) return false;
+        uploadedIds.add(uploaded.uploadId);
+      }
+      final result = await client.sendWorkbenchBridgePrompt(
         engine: cliRef.engine,
         rawSessionId: cliRef.rawId,
         cwd: _cliCwd,
         prompt: trimmed,
         model: _cliModel?.model,
+        reasoningEffort: _cliModel?.reasoningEffort,
+        attachmentIds: uploadedIds,
       );
       if (!ref.mounted || !identical(client, _client)) return false;
+      if (result.sessionId.isNotEmpty && result.sessionId != cliRef.sessionId) {
+        _cliItems = previousItems;
+        _cliRunning = false;
+        state = ChatState(
+          items: _cliItems,
+          running: false,
+          loading: false,
+          connection: client.mux.state,
+          model: _cliModel,
+        );
+        if (_cliModel case final selectedModel?) {
+          unawaited(ref.read(chatProvider(result.sessionId).notifier).setModel(selectedModel));
+        }
+        unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+        ref.read(currentSessionProvider.notifier).select(result.sessionId);
+        return true;
+      }
       unawaited(_syncCliSession(client, cliRef));
       unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
       return true;
     } catch (error) {
       if (!ref.mounted || !identical(client, _client)) return false;
+      _cliItems = previousItems;
       _cliRunning = false;
+      final message = error is DshRemoteException && error.message.isNotEmpty
+          ? error.message
+          : error.toString();
       state = ChatState(
         items: _cliItems,
         running: false,
         loading: false,
-        error: error.toString(),
+        error: message,
         connection: client.mux.state,
         model: _cliModel,
       );
@@ -1456,7 +1537,7 @@ class ChatController extends Notifier<ChatState> {
     }
     final cliRef = CliSessionRef.parse(sessionId);
     if (cliRef != null) {
-      return _sendCliPrompt(client, cliRef, verbatim ? text : trimmed);
+      return _sendCliPrompt(client, cliRef, verbatim ? text : trimmed, attachments: attachments);
     }
     final body = verbatim ? text : trimmed;
     if (!_canControl && (mode == SendMode.interrupt || !await waitForSync())) return false;
@@ -2158,6 +2239,13 @@ class ChatController extends Notifier<ChatState> {
   Future<bool> setModel(ModelSelection selection) async {
     final owner = ref;
     if (!owner.mounted) return false;
+    final cliRef = CliSessionRef.parse(sessionId);
+    if (cliRef != null) {
+      _cliModel = selection;
+      _cliModelPinned = true;
+      state = state.copyWith(model: selection, error: null);
+      return true;
+    }
     final client = _client;
     if (client == null) return false;
     final generation = client.mux.generation;
