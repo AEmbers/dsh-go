@@ -6,7 +6,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { decodeFileUri, isSafeSessionId, readJsonlSafe, toEpochMs, unwrapUserRequest } from './common.js';
+import {
+  decodeFileUri,
+  extractBridgeAttachmentsFromText,
+  isSafeSessionId,
+  normalizeCliToolName,
+  readJsonlSafe,
+  stripBridgeAttachmentBlock,
+  toEpochMs,
+  unwrapUserRequest,
+} from './common.js';
 
 /**
  * 解析 Antigravity 工作区 URI JSON 数组并取首个工作区路径。
@@ -53,7 +62,7 @@ function readTitleFromTranscriptHead(rootDir, conversationId) {
         continue;
       }
       if (row && row.type === 'USER_INPUT' && row.source === 'USER_EXPLICIT') {
-        const text = unwrapUserRequest(row.content).split(/\r?\n/)[0].trim();
+        const text = stripBridgeAttachmentBlock(unwrapUserRequest(row.content)).split(/\r?\n/)[0].trim();
         if (text) return text.slice(0, 80);
       }
     }
@@ -268,12 +277,227 @@ function isAntigravityRunning(rootDir, rawId, logPath, rows) {
   return false;
 }
 
+const MAX_AGY_CACHE = 64;
+/** @type {Map<string, { mtimeMs: number, size: number, leftover: string, messages: Array<object>, model: string | null, lastRow: object | null }>} */
+const antigravityTranscriptCache = new Map();
+
+/**
+ * 将单条 Antigravity `transcript.jsonl` 记录追加到消息列表（供全量与增量读取共用）。
+ *
+ * @param {object} row
+ * @param {{ messages: Array<object>, model: string | null, lastRow: object | null }} acc
+ */
+function appendAntigravityRow(row, acc) {
+  acc.lastRow = row;
+  const createdAt = toEpochMs(row.created_at);
+  const id = `agy-${row.step_index ?? acc.messages.length}`;
+
+  if (row.type === 'USER_INPUT' && row.source === 'USER_EXPLICIT') {
+    const unwrapped = unwrapUserRequest(row.content);
+    const extracted = extractBridgeAttachmentsFromText(unwrapped);
+    const text = extracted.text;
+    const seenAttachmentIds = new Set();
+    const mediaParts = [];
+
+    const pushAttachment = (part) => {
+      const aid = part?.attachment?.attachmentId;
+      if (aid && seenAttachmentIds.has(aid)) return;
+      if (aid) seenAttachmentIds.add(aid);
+      mediaParts.push(part);
+    };
+
+    if (Array.isArray(row.media)) {
+      for (const m of row.media) {
+        if (!m || typeof m !== 'object') continue;
+        const mime = typeof m.mime_type === 'string' ? m.mime_type.trim() : '';
+        const rawUri = typeof m.uri === 'string' ? m.uri.trim() : '';
+        if (!mime || !/^image\//i.test(mime) || !rawUri) continue;
+        let filePath = decodeFileUri(rawUri);
+        if (/^\/[A-Za-z]:[\\/]/.test(filePath)) filePath = filePath.slice(1);
+        if (!filePath) continue;
+        let bytes;
+        try {
+          if (fs.existsSync(filePath)) {
+            bytes = fs.statSync(filePath).size;
+          }
+        } catch {
+          // ignore stat error
+        }
+        pushAttachment({
+          type: 'image',
+          attachment: {
+            attachmentId: `wb-file:${filePath}`,
+            mediaType: mime,
+            name: path.basename(filePath),
+            ...(bytes !== undefined ? { bytes } : {}),
+          },
+        });
+      }
+    }
+    for (const part of extracted.attachments) {
+      pushAttachment(part);
+    }
+
+    if (!text && mediaParts.length === 0) return;
+    const parts = [];
+    if (text) parts.push({ type: 'text', text });
+    parts.push(...mediaParts);
+    acc.messages.push({
+      messageId: id,
+      role: 'user',
+      createdAt,
+      parts,
+    });
+    return;
+  }
+
+  if (row.type === 'PLANNER_RESPONSE') {
+    if (typeof row.model === 'string' && row.model) acc.model = row.model;
+    const parts = [];
+    if (typeof row.thinking === 'string' && row.thinking.trim()) {
+      parts.push({ type: 'reasoning', text: row.thinking });
+    }
+    if (Array.isArray(row.tool_calls)) {
+      for (const call of row.tool_calls) {
+        if (!call || typeof call !== 'object') continue;
+        const args =
+          typeof call.arguments === 'string'
+            ? call.arguments
+            : JSON.stringify(call.arguments ?? call.args ?? {});
+        parts.push({
+          type: 'tool-call',
+          id: String(call.id || `${id}-tool-${parts.length}`),
+          name: normalizeCliToolName(call.name),
+          arguments: args,
+        });
+      }
+    }
+    if (typeof row.content === 'string' && row.content.trim()) {
+      parts.push({ type: 'text', text: row.content });
+    }
+    if (parts.length === 0) return;
+    acc.messages.push({
+      messageId: id,
+      role: 'assistant',
+      createdAt,
+      model: typeof row.model === 'string' ? row.model : null,
+      parts,
+    });
+  }
+}
+
+/**
+ * 增量读取并解析 JSONL 文件：未变化 0ms 命中缓存，末尾追加仅读新增字节，缩短或重建时回退全量读取。
+ *
+ * @param {string} logPath
+ * @returns {{ messages: Array<object>, model: string | null, lastRow: object | null }}
+ */
+function readAntigravityTranscriptCached(logPath) {
+  let stat;
+  try {
+    stat = fs.statSync(logPath);
+  } catch {
+    antigravityTranscriptCache.delete(logPath);
+    return { messages: [], model: null, lastRow: null };
+  }
+  const cached = antigravityTranscriptCache.get(logPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached;
+  }
+
+  const consumeChunk = (acc, rawChunk) => {
+    const combined = (acc.leftover || '') + rawChunk;
+    const lines = combined.split(/\r?\n/);
+    acc.leftover = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') appendAntigravityRow(parsed, acc);
+      } catch {
+        // 忽略半行或损坏 JSON
+      }
+    }
+  };
+
+  if (cached && stat.size > cached.size) {
+    let fd;
+    try {
+      const deltaBytes = stat.size - cached.size;
+      const buf = Buffer.allocUnsafe(deltaBytes);
+      fd = fs.openSync(logPath, 'r');
+      const readBytes = fs.readSync(fd, buf, 0, deltaBytes, cached.size);
+      consumeChunk(cached, buf.toString('utf8', 0, readBytes));
+      cached.size = cached.size + readBytes;
+      cached.mtimeMs = stat.mtimeMs;
+      // 如果末尾正好是一条完整 JSON 行且没有尾随换行，也尝试立即解析，避免最后一行迟滞
+      if (cached.leftover.trim()) {
+        try {
+          const parsed = JSON.parse(cached.leftover.trim());
+          if (parsed && typeof parsed === 'object') {
+            appendAntigravityRow(parsed, cached);
+            cached.leftover = '';
+          }
+        } catch {
+          // 仍在写入中的半行，留待下次拼接
+        }
+      }
+      return cached;
+    } catch {
+      // 增量读取失败则回退全量读取
+    } finally {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  const acc = {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    leftover: '',
+    messages: [],
+    model: null,
+    lastRow: null,
+  };
+  try {
+    const content = fs.readFileSync(logPath, 'utf8');
+    consumeChunk(acc, content);
+    if (acc.leftover.trim()) {
+      try {
+        const parsed = JSON.parse(acc.leftover.trim());
+        if (parsed && typeof parsed === 'object') {
+          appendAntigravityRow(parsed, acc);
+          acc.leftover = '';
+        }
+      } catch {
+        // 忽略末尾未写完的半行
+      }
+    }
+  } catch {
+    return { messages: [], model: null, lastRow: null };
+  }
+
+  antigravityTranscriptCache.delete(logPath);
+  antigravityTranscriptCache.set(logPath, acc);
+  if (antigravityTranscriptCache.size > MAX_AGY_CACHE) {
+    const oldestKey = antigravityTranscriptCache.keys().next().value;
+    if (oldestKey) antigravityTranscriptCache.delete(oldestKey);
+  }
+  return acc;
+}
+
 /**
  * 读取指定 Antigravity 会话的标准化消息列表。
  *
  * @param {string} rawId
  * @param {{ rootDir?: string }} [options]
- * @returns {{ messages: Array<object>, model: string | null, running: boolean }}
+ * @returns {{ messages: Array<object>, model: string | null, running: boolean, logPath?: string }}
  */
 export function readAntigravityMessages(rawId, options = {}) {
   if (!isSafeSessionId(rawId)) return { messages: [], model: null, running: false };
@@ -296,93 +520,8 @@ export function readAntigravityMessages(rawId, options = {}) {
       // ignore stat failure
     }
   }
-  const rows = readJsonlSafe(logPath);
-  const messages = [];
-  let latestModel = null;
-
-  for (const row of rows) {
-    const createdAt = toEpochMs(row.created_at);
-    const id = `agy-${row.step_index ?? messages.length}`;
-
-    if (row.type === 'USER_INPUT' && row.source === 'USER_EXPLICIT') {
-      const text = unwrapUserRequest(row.content);
-      const mediaParts = [];
-      if (Array.isArray(row.media)) {
-        for (const m of row.media) {
-          if (!m || typeof m !== 'object') continue;
-          const mime = typeof m.mime_type === 'string' ? m.mime_type.trim() : '';
-          const rawUri = typeof m.uri === 'string' ? m.uri.trim() : '';
-          if (!mime || !/^image\//i.test(mime) || !rawUri) continue;
-          let filePath = decodeFileUri(rawUri);
-          if (/^\/[A-Za-z]:[\\/]/.test(filePath)) filePath = filePath.slice(1);
-          if (!filePath) continue;
-          let bytes;
-          try {
-            if (fs.existsSync(filePath)) {
-              bytes = fs.statSync(filePath).size;
-            }
-          } catch {
-            // ignore stat error
-          }
-          mediaParts.push({
-            type: 'image',
-            attachment: {
-              attachmentId: `wb-file:${filePath}`,
-              mediaType: mime,
-              name: path.basename(filePath),
-              ...(bytes !== undefined ? { bytes } : {}),
-            },
-          });
-        }
-      }
-      if (!text && mediaParts.length === 0) continue;
-      const parts = [];
-      if (text) parts.push({ type: 'text', text });
-      parts.push(...mediaParts);
-      messages.push({
-        messageId: id,
-        role: 'user',
-        createdAt,
-        parts,
-      });
-      continue;
-    }
-
-    if (row.type === 'PLANNER_RESPONSE') {
-      if (typeof row.model === 'string' && row.model) latestModel = row.model;
-      const parts = [];
-      if (typeof row.thinking === 'string' && row.thinking.trim()) {
-        parts.push({ type: 'reasoning', text: row.thinking });
-      }
-      if (Array.isArray(row.tool_calls)) {
-        for (const call of row.tool_calls) {
-          if (!call || typeof call !== 'object') continue;
-          const args =
-            typeof call.arguments === 'string'
-              ? call.arguments
-              : JSON.stringify(call.arguments ?? call.args ?? {});
-          parts.push({
-            type: 'tool-call',
-            id: String(call.id || `${id}-tool-${parts.length}`),
-            name: String(call.name || 'tool'),
-            arguments: args,
-          });
-        }
-      }
-      if (typeof row.content === 'string' && row.content.trim()) {
-        parts.push({ type: 'text', text: row.content });
-      }
-      if (parts.length === 0) continue;
-      messages.push({
-        messageId: id,
-        role: 'assistant',
-        createdAt,
-        model: typeof row.model === 'string' ? row.model : null,
-        parts,
-      });
-    }
-  }
-
-  const running = isAntigravityRunning(rootDir, rawId, logPath, rows);
-  return { messages, model: latestModel, running };
+  const parsed = readAntigravityTranscriptCached(logPath);
+  const tailRows = parsed.lastRow ? [parsed.lastRow] : [];
+  const running = isAntigravityRunning(rootDir, rawId, logPath, tailRows);
+  return { messages: parsed.messages, model: parsed.model, running, logPath };
 }

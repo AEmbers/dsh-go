@@ -15,71 +15,140 @@ import '../theme/semantic_colors.dart';
 /// -todo、-goal、-ask-user、-subagent、-subagent-control、-workflow、-skill、
 /// -present、-ralph。MCP 工具形如 `mcp__server__tool`。
 abstract final class ToolGlyphs {
-  static ToolTone toneFor(String name) => switch (name) {
-    'bash' || 'pwsh' || 'job_output' || 'job_list' || 'job_kill' => ToolTone.terminal,
-    'read' || 'read_image' || 'present' => ToolTone.read,
-    'write' || 'edit' || 'str_replace_editor' => ToolTone.edit,
-    'grep' || 'glob' => ToolTone.search,
-    'web_fetch' || 'web_search' => ToolTone.web,
+  static ToolTone toneFor(String name) => switch (name.toLowerCase()) {
+    'bash' ||
+    'pwsh' ||
+    'run_command' ||
+    'exec_command' ||
+    'shell_command' ||
+    'command_status' ||
+    'send_command_input' ||
+    'manage_task' ||
+    'job_output' ||
+    'job_list' ||
+    'job_kill' => ToolTone.terminal,
+    'read' ||
+    'read_image' ||
+    'read_file' ||
+    'view_file' ||
+    'list_dir' ||
+    'read_resource' ||
+    'list_resources' ||
+    'present' => ToolTone.read,
+    'write' ||
+    'write_file' ||
+    'write_to_file' ||
+    'edit' ||
+    'edit_file' ||
+    'replace_file_content' ||
+    'multi_replace_file_content' ||
+    'apply_patch' ||
+    'notebook_edit' ||
+    'sed_file' ||
+    'str_replace_editor' => ToolTone.edit,
+    'grep' || 'glob' || 'grep_search' || 'find_by_name' || 'code_search' => ToolTone.search,
+    'web_fetch' ||
+    'web_search' ||
+    'search_web' ||
+    'read_url_content' ||
+    'open_browser_url' ||
+    'read_browser_page' => ToolTone.web,
     'subagent' ||
+    'invoke_subagent' ||
+    'define_subagent' ||
+    'manage_subagents' ||
+    'browser_subagent' ||
     'send_message' ||
     'interrupt_agent' ||
     'list_subagent_models' ||
     'workflow' ||
+    'run_workflow' ||
+    'swarm' ||
     'ralph' ||
     'skill' => ToolTone.agent,
-    'todo_write' || 'create_goal' || 'get_goal' || 'update_goal' || 'ask_user_question' => ToolTone.plan,
+    'todo_write' ||
+    'update_steps' ||
+    'enter_plan_mode' ||
+    'exit_plan_mode' ||
+    'create_goal' ||
+    'get_goal' ||
+    'update_goal' ||
+    'ask_user_question' ||
+    'ask_question' => ToolTone.plan,
     _ => ToolTone.neutral,
   };
 
-  static IconData iconFor(String name) => switch (name) {
-    'bash' || 'pwsh' => AppIcons.terminal,
-    'job_output' || 'job_list' || 'job_kill' => AppIcons.jobs,
-    'read' => AppIcons.document,
+  static IconData iconFor(String name) => switch (name.toLowerCase()) {
+    'bash' || 'pwsh' || 'run_command' || 'exec_command' || 'shell_command' => AppIcons.terminal,
+    'job_output' || 'job_list' || 'job_kill' || 'command_status' || 'send_command_input' || 'manage_task' => AppIcons.jobs,
+    'read' || 'read_file' || 'view_file' || 'read_resource' => AppIcons.document,
     'read_image' => AppIcons.image,
     'present' => AppIcons.artifacts,
-    'write' || 'edit' || 'str_replace_editor' => AppIcons.edit,
-    'grep' => AppIcons.search,
-    'glob' => AppIcons.folderOpen,
-    'web_fetch' => AppIcons.web,
-    'web_search' => AppIcons.webSearch,
-    'subagent' || 'send_message' || 'interrupt_agent' => AppIcons.subagents,
-    'workflow' || 'ralph' => AppIcons.workflow,
+    'write' ||
+    'write_file' ||
+    'write_to_file' ||
+    'edit' ||
+    'edit_file' ||
+    'replace_file_content' ||
+    'multi_replace_file_content' ||
+    'apply_patch' ||
+    'notebook_edit' ||
+    'sed_file' ||
+    'str_replace_editor' => AppIcons.edit,
+    'grep' || 'grep_search' || 'code_search' => AppIcons.search,
+    'glob' || 'find_by_name' || 'list_dir' || 'list_resources' => AppIcons.folderOpen,
+    'web_fetch' || 'read_url_content' || 'open_browser_url' || 'read_browser_page' => AppIcons.web,
+    'web_search' || 'search_web' => AppIcons.webSearch,
+    'subagent' ||
+    'invoke_subagent' ||
+    'define_subagent' ||
+    'manage_subagents' ||
+    'browser_subagent' ||
+    'send_message' ||
+    'interrupt_agent' => AppIcons.subagents,
+    'workflow' || 'run_workflow' || 'swarm' || 'ralph' => AppIcons.workflow,
     'skill' => AppIcons.skill,
-    'todo_write' => AppIcons.todo,
+    'todo_write' || 'update_steps' || 'enter_plan_mode' || 'exit_plan_mode' => AppIcons.todo,
     'create_goal' || 'get_goal' || 'update_goal' => AppIcons.goal,
-    'ask_user_question' => AppIcons.question,
+    'ask_user_question' || 'ask_question' => AppIcons.question,
     _ when name.startsWith('mcp__') => AppIcons.plugin,
     _ => AppIcons.tool,
   };
 
   /// 工具行标题的默认动词。业务层有更具体的摘要时可以覆盖。
-  static String labelFor(String name) => switch (name) {
-    'bash' || 'pwsh' => appL10n.botsGlyphRun,
-    'job_output' => appL10n.botsGlyphJobOutput,
-    'job_list' => appL10n.botsGlyphJobs,
+  static String labelFor(String name) => switch (name.toLowerCase()) {
+    'bash' || 'pwsh' || 'run_command' || 'exec_command' || 'shell_command' => appL10n.botsGlyphRun,
+    'job_output' || 'command_status' => appL10n.botsGlyphJobOutput,
+    'job_list' || 'manage_task' || 'send_command_input' => appL10n.botsGlyphJobs,
     'job_kill' => appL10n.botsGlyphStopJob,
-    'read' => appL10n.botsGlyphRead,
+    'read' || 'read_file' || 'view_file' || 'read_resource' => appL10n.botsGlyphRead,
     'read_image' => appL10n.botsGlyphImage,
     'present' => appL10n.botsGlyphDeliver,
-    'write' => appL10n.botsGlyphWrite,
-    'edit' || 'str_replace_editor' => appL10n.commonEdit,
-    'grep' => appL10n.botsGlyphSearch,
-    'glob' => appL10n.botsGlyphFindFiles,
-    'web_fetch' => appL10n.botsGlyphOpenWeb,
-    'web_search' => appL10n.botsGlyphWebSearch,
-    'subagent' => appL10n.botsGlyphSubagent,
+    'write' || 'write_file' || 'write_to_file' => appL10n.botsGlyphWrite,
+    'edit' ||
+    'edit_file' ||
+    'replace_file_content' ||
+    'multi_replace_file_content' ||
+    'apply_patch' ||
+    'notebook_edit' ||
+    'sed_file' ||
+    'str_replace_editor' => appL10n.commonEdit,
+    'grep' || 'grep_search' || 'code_search' => appL10n.botsGlyphSearch,
+    'glob' || 'find_by_name' || 'list_dir' || 'list_resources' => appL10n.botsGlyphFindFiles,
+    'web_fetch' || 'read_url_content' || 'open_browser_url' || 'read_browser_page' => appL10n.botsGlyphOpenWeb,
+    'web_search' || 'search_web' => appL10n.botsGlyphWebSearch,
+    'subagent' || 'invoke_subagent' || 'define_subagent' || 'manage_subagents' || 'browser_subagent' => appL10n.botsGlyphSubagent,
     'send_message' => appL10n.botsGlyphMessageAgent,
     'interrupt_agent' => appL10n.botsGlyphInterruptAgent,
     'list_subagent_models' => appL10n.botsGlyphListModels,
-    'workflow' => appL10n.botsGlyphWorkflow,
+    'workflow' || 'run_workflow' || 'swarm' => appL10n.botsGlyphWorkflow,
     'ralph' => appL10n.botsGlyphLoop,
     'skill' => appL10n.botsGlyphSkill,
-    'todo_write' => appL10n.botsGlyphTodo,
+    'todo_write' || 'update_steps' || 'enter_plan_mode' || 'exit_plan_mode' => appL10n.botsGlyphTodo,
     'create_goal' => appL10n.botsGlyphSetGoal,
     'get_goal' => appL10n.botsGlyphViewGoal,
     'update_goal' => appL10n.botsGlyphUpdateGoal,
-    'ask_user_question' => appL10n.botsGlyphAsk,
+    'ask_user_question' || 'ask_question' => appL10n.botsGlyphAsk,
     _ when name.startsWith('mcp__') => name.split('__').last,
     _ => name,
   };

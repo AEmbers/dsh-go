@@ -179,7 +179,8 @@ class ToolView {
     };
   });
 
-  bool get isTerminal => const {'bash', 'pwsh', 'job_output'}.contains(name);
+  bool get isTerminal =>
+      const {'bash', 'pwsh', 'run_command', 'exec_command', 'shell_command', 'job_output'}.contains(name.toLowerCase());
 
   bool get isActive => switch (item.status) {
     ToolStatus.streaming || ToolStatus.running || ToolStatus.awaitingApproval => true,
@@ -205,26 +206,58 @@ class ToolView {
     return ToolGlyphs.labelFor(name);
   }
 
-  /// read / write / edit / str_replace_editor:详情里只列路径,不摊开参数。
-  bool get isFileTool => const {'read', 'write', 'edit', 'str_replace_editor', 'read_image'}.contains(name);
+  /// read / write / edit / str_replace_editor 等文件类工具:详情里只列路径,不摊开参数。
+  bool get isFileTool => const {
+    'read',
+    'read_file',
+    'view_file',
+    'write',
+    'write_file',
+    'write_to_file',
+    'edit',
+    'edit_file',
+    'replace_file_content',
+    'multi_replace_file_content',
+    'str_replace_editor',
+    'read_image',
+  }.contains(name.toLowerCase());
 
-  /// 文件类工具的路径。
-  String? get path => arg('file_path') ?? arg('path');
+  /// 文件类工具的路径（同时兼容 Antigravity / Codex / Claude 常见参数键）。
+  String? get path =>
+      arg('file_path') ??
+      arg('path') ??
+      arg('Path') ??
+      arg('TargetFile') ??
+      arg('AbsolutePath') ??
+      arg('DirectoryPath');
 
-  /// bash / pwsh 的完整命令。
-  String? get command => isTerminal ? arg('command') : null;
+  /// bash / pwsh / run_command 等终端类工具的完整命令。
+  String? get command => isTerminal ? (arg('command') ?? arg('CommandLine') ?? arg('cmd')) : null;
 
   /// 摘要是不是命令 / 路径 / 模式(用等宽)。
-  bool get summaryIsCode => switch (name) {
+  bool get summaryIsCode => switch (name.toLowerCase()) {
     'bash' ||
     'pwsh' ||
+    'run_command' ||
+    'exec_command' ||
+    'shell_command' ||
     'read' ||
+    'read_file' ||
+    'view_file' ||
+    'list_dir' ||
     'write' ||
+    'write_file' ||
+    'write_to_file' ||
     'edit' ||
+    'edit_file' ||
+    'replace_file_content' ||
+    'multi_replace_file_content' ||
     'str_replace_editor' ||
     'read_image' ||
     'grep' ||
+    'grep_search' ||
     'glob' ||
+    'find_by_name' ||
     'job_output' ||
     'job_kill' => true,
     _ => false,
@@ -251,34 +284,47 @@ class ToolView {
 
   String _summary() {
     String oneLine(String s) => s.trim().replaceAll(RegExp(r'\s+'), ' ');
-    switch (name) {
-      case 'bash' || 'pwsh':
-        return oneLine(arg('command') ?? arg('description') ?? '');
+    switch (name.toLowerCase()) {
+      case 'bash' || 'pwsh' || 'run_command' || 'exec_command' || 'shell_command':
+        return oneLine(arg('command') ?? arg('CommandLine') ?? arg('cmd') ?? arg('toolSummary') ?? arg('description') ?? '');
       // present: `files: [{path, description?}]` (the declared deliverables).
       case 'present' when args?['files'] is List:
         return [
           for (final file in args!['files'] as List)
             if (file is Map && file['path'] is String) (file['path'] as String).split('/').last,
         ].join(appL10n.activityToolListSeparator);
-      case 'read' || 'write' || 'edit' || 'read_image' || 'str_replace_editor' || 'present':
+      case 'read' ||
+          'read_file' ||
+          'view_file' ||
+          'list_dir' ||
+          'write' ||
+          'write_file' ||
+          'write_to_file' ||
+          'edit' ||
+          'edit_file' ||
+          'replace_file_content' ||
+          'multi_replace_file_content' ||
+          'read_image' ||
+          'str_replace_editor' ||
+          'present':
         final p = path;
         return p == null ? '' : displayPath(p);
-      case 'grep':
-        final pattern = arg('pattern') ?? '';
-        final where = arg('path');
+      case 'grep' || 'grep_search' || 'code_search':
+        final pattern = arg('pattern') ?? arg('Query') ?? arg('query') ?? '';
+        final where = arg('path') ?? arg('SearchPath');
         return where == null || where.isEmpty ? pattern : '$pattern · ${displayPath(where)}';
-      case 'glob':
-        return arg('pattern') ?? '';
-      case 'web_fetch':
-        return (arg('url') ?? '').replaceFirst(RegExp(r'^https?://'), '');
-      case 'web_search':
-        return arg('query') ?? '';
-      case 'todo_write':
-        final todos = args?['todos'];
+      case 'glob' || 'find_by_name':
+        return arg('pattern') ?? arg('Pattern') ?? '';
+      case 'web_fetch' || 'read_url_content' || 'open_browser_url':
+        return (arg('url') ?? arg('Url') ?? '').replaceFirst(RegExp(r'^https?://'), '');
+      case 'web_search' || 'search_web':
+        return arg('query') ?? arg('Query') ?? '';
+      case 'todo_write' || 'update_steps':
+        final todos = args?['todos'] ?? args?['steps'];
         return todos is List ? appL10n.commonItemCount(todos.length) : '';
-      case 'job_output' || 'job_kill':
-        return arg('job_id') ?? arg('id') ?? '';
-      case 'ask_user_question':
+      case 'job_output' || 'job_kill' || 'command_status' || 'manage_task':
+        return arg('job_id') ?? arg('id') ?? arg('TaskId') ?? arg('CommandId') ?? '';
+      case 'ask_user_question' || 'ask_question':
         final questions = args?['questions'];
         if (questions is List && questions.isNotEmpty) {
           final first = questions.first;
@@ -287,20 +333,28 @@ class ToolView {
           }
         }
         return '';
-      case 'subagent' || 'send_message' || 'workflow' || 'ralph':
-        return oneLine(arg('description') ?? arg('prompt') ?? '');
+      case 'subagent' || 'invoke_subagent' || 'send_message' || 'workflow' || 'run_workflow' || 'ralph':
+        return oneLine(arg('description') ?? arg('Description') ?? arg('Role') ?? arg('prompt') ?? arg('Prompt') ?? '');
       case 'skill':
         return arg('name') ?? arg('skill') ?? '';
     }
     for (final key in const [
       'command',
+      'CommandLine',
       'file_path',
       'path',
+      'Path',
       'pattern',
+      'Pattern',
       'query',
+      'Query',
       'url',
+      'Url',
+      'toolSummary',
       'description',
+      'Description',
       'prompt',
+      'Prompt',
       'name',
     ]) {
       final value = arg(key);

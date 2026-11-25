@@ -5,31 +5,53 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { isSafeSessionId, readJsonlSafe, toEpochMs, walkFiles } from './common.js';
+import {
+  extractBridgeAttachmentsFromText,
+  isSafeSessionId,
+  normalizeCliToolName,
+  readJsonlSafe,
+  toEpochMs,
+  walkFiles,
+} from './common.js';
 
 /**
  * 提取 Claude 消息 content（字符串或 content block 数组）中的纯文本与富块。
  *
  * @param {unknown} content
+ * @param {'user' | 'assistant'} [role]
  * @returns {Array<object>}
  */
-function extractClaudeParts(content) {
+function extractClaudeParts(content, role = 'assistant') {
   if (typeof content === 'string') {
-    return content.trim() ? [{ type: 'text', text: content }] : [];
+    if (!content.trim()) return [];
+    if (role === 'user') {
+      const extracted = extractBridgeAttachmentsFromText(content);
+      const parts = [];
+      if (extracted.text) parts.push({ type: 'text', text: extracted.text });
+      parts.push(...extracted.attachments);
+      return parts;
+    }
+    return [{ type: 'text', text: content }];
   }
   if (!Array.isArray(content)) return [];
   const parts = [];
   for (const block of content) {
     if (!block || typeof block !== 'object') continue;
     if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-      parts.push({ type: 'text', text: block.text });
+      if (role === 'user') {
+        const extracted = extractBridgeAttachmentsFromText(block.text);
+        if (extracted.text) parts.push({ type: 'text', text: extracted.text });
+        parts.push(...extracted.attachments);
+      } else {
+        parts.push({ type: 'text', text: block.text });
+      }
     } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
       parts.push({ type: 'reasoning', text: block.thinking });
     } else if (block.type === 'tool_use') {
       parts.push({
         type: 'tool-call',
         id: String(block.id || `claude-tool-${parts.length}`),
-        name: String(block.name || 'tool'),
+        name: normalizeCliToolName(block.name),
         arguments: JSON.stringify(block.input ?? {}),
       });
     }
@@ -80,7 +102,7 @@ export function scanClaudeSessions(options = {}) {
         if (ts > updatedAt) updatedAt = ts;
       }
       if (!title && row.type === 'user' && row.message) {
-        const parts = extractClaudeParts(row.message.content);
+        const parts = extractClaudeParts(row.message.content, 'user');
         const firstText = parts.find((p) => p.type === 'text')?.text || '';
         title = firstText.trim().split(/\r?\n/)[0].slice(0, 80);
       }
@@ -131,7 +153,7 @@ export function readClaudeMessages(rawId, options = {}) {
     const msg = row.message;
     if (!msg || typeof msg !== 'object') continue;
     if (row.type === 'assistant' && typeof msg.model === 'string') model = msg.model;
-    const parts = extractClaudeParts(msg.content);
+    const parts = extractClaudeParts(msg.content, row.type);
     if (parts.length === 0) continue;
     messages.push({
       messageId: String(row.uuid || `claude-${messages.length}`),
@@ -142,5 +164,5 @@ export function readClaudeMessages(rawId, options = {}) {
     });
   }
 
-  return { messages, model, cwd };
+  return { messages, model, cwd, logPath: match };
 }

@@ -825,3 +825,132 @@ test('Antigravity scanner merges IDE and CLI roots and auto-hands off IDE-only s
   assert.ok(calls[1].includes(cliId));
   manager.dispose();
 });
+
+test('bridge strips injected attachment blocks, deduplicates overlay user bubbles, normalizes tool names & supports incremental long-poll', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-wb-sync-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const agyRoot = path.join(root, 'antigravity');
+  const uploadRoot = path.join(root, 'uploads');
+  const sid = '33333333-3333-3333-3333-333333333333';
+  const logDir = path.join(agyRoot, 'brain', sid, '.system_generated', 'logs');
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.mkdirSync(path.join(agyRoot, 'conversations'), { recursive: true });
+  fs.writeFileSync(path.join(agyRoot, 'conversations', `${sid}.db`), '');
+
+  const picPath = path.join(root, 'shot.jpg');
+  fs.writeFileSync(picPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+
+  let activeChild = null;
+  const runner = new CliRunManager({
+    uploadRoot,
+    antigravityIdeRoot: path.join(root, 'ide-empty'),
+    antigravityCliRoot: agyRoot,
+    resolveBinFn: () => 'fake-agy',
+    spawnFn: () => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      activeChild = child;
+      return child;
+    },
+  });
+  t.after(() => runner.dispose());
+
+  const uploaded = runner.saveUploadChunk({
+    name: 'shot.jpg',
+    mediaType: 'image/jpeg',
+    offset: 0,
+    chunkBase64: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64'),
+    done: true,
+  });
+
+  const routes = createWorkbenchRoutes({}, { roots: { antigravity: agyRoot }, runner, requireConnection: false });
+
+  // 启动带图对话
+  runner.startRun({
+    engine: 'antigravity',
+    rawSessionId: sid,
+    prompt: '宿舍家具全部显示已占用',
+    attachmentIds: [uploaded.uploadId],
+  });
+
+  // 模拟 Antigravity 将带桥接注入附件块的 USER_INPUT 和含 default_api: 前缀工具调用的 PLANNER_RESPONSE 落盘
+  const transcriptPath = path.join(logDir, 'transcript.jsonl');
+  const nowIso = new Date().toISOString();
+  fs.writeFileSync(
+    transcriptPath,
+    `${JSON.stringify({
+      type: 'USER_INPUT',
+      source: 'USER_EXPLICIT',
+      step_index: 0,
+      created_at: nowIso,
+      content: `<USER_REQUEST>\n宿舍家具全部显示已占用\n\n[用户附带的本地文件，请直接读取分析]\n- shot.jpg (image/jpeg): ${picPath}\n</USER_REQUEST>`,
+    })}\n${JSON.stringify({
+      type: 'PLANNER_RESPONSE',
+      step_index: 1,
+      created_at: nowIso,
+      model: 'gemini-pro-orchestrator-neon',
+      thinking: 'Inspecting state',
+      tool_calls: [{ id: 'tc1', name: 'default_api:read_file', arguments: '{"Path":"a.dart"}' }],
+    })}\n`,
+    'utf8',
+  );
+
+  // 1) 验证附件块已被剥离并还原为图片 part、工具名已去前缀、且不会在尾部重复追加 run-user-*
+  const snap1 = await routes.buildMessagesPayloadAsync('antigravity', sid, { waitMs: 0 });
+  const userMsgs = snap1.messages.filter((m) => m.role === 'user');
+  assert.equal(userMsgs.length, 1);
+  assert.equal(userMsgs[0].parts[0].text, '宿舍家具全部显示已占用');
+  assert.equal(userMsgs[0].parts[1].type, 'image');
+  assert.equal(userMsgs[0].parts[1].attachment.name, 'shot.jpg');
+  assert.equal(snap1.messages[1].parts[1].name, 'read_file');
+  assert.ok(snap1.etag);
+  assert.equal(snap1.stableCount, 1);
+
+  // 2) 验证 ETag 命中时立即返回 notModified
+  const notMod = await routes.buildMessagesPayloadAsync('antigravity', sid, {
+    ifNoneMatch: snap1.etag,
+    waitMs: 0,
+  });
+  assert.equal(notMod.notModified, true);
+  assert.deepEqual(notMod.messages, []);
+
+  // 3) 验证长轮询在流式 delta 到达时 <500ms 即时唤醒并只返回增量 delta 包
+  const t0 = Date.now();
+  const waitPromise = routes.buildMessagesPayloadAsync('antigravity', sid, {
+    ifNoneMatch: snap1.etag,
+    afterCount: snap1.stableCount,
+    baseHash: snap1.prefixHash,
+    waitMs: 5000,
+  });
+  setTimeout(() => {
+    activeChild.stdout.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ event: 'step_update', step_update: { conversation_id: sid, step_index: 2, state: 'ACTIVE', step_type: 'agent_response', text_delta: '已定位问题' } })}\n`),
+    );
+  }, 40);
+  const deltaSnap = await waitPromise;
+  assert.ok(Date.now() - t0 < 1500, 'long-poll should wake quickly on stream delta');
+  assert.equal(deltaSnap.notModified, undefined);
+  assert.equal(deltaSnap.delta, true);
+  assert.equal(deltaSnap.replaceFrom, snap1.stableCount);
+  assert.ok(deltaSnap.messages.some((m) => m.parts?.some((p) => p.type === 'text' && p.text.includes('已定位问题'))));
+
+  // 4) 验证向 transcript.jsonl 追加新行能通过增量文件缓存立即可见
+  fs.appendFileSync(
+    transcriptPath,
+    `${JSON.stringify({
+      type: 'PLANNER_RESPONSE',
+      step_index: 2,
+      created_at: new Date().toISOString(),
+      model: 'gemini-pro-orchestrator-neon',
+      content: '已定位问题并修复完成',
+    })}\n`,
+    'utf8',
+  );
+  activeChild.emit('close', 0);
+  const afterAppend = await routes.buildMessagesPayloadAsync('antigravity', sid, { waitMs: 0 });
+  assert.ok(afterAppend.messages.some((m) => m.parts?.some((p) => p.type === 'text' && p.text === '已定位问题并修复完成')));
+});

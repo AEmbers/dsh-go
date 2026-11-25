@@ -11,22 +11,60 @@ import 'tool_view.dart';
 enum ToolKind { command, edit, read, search, web, agent, todo, other }
 
 ToolKind toolKindOf(ToolChatItem tool) {
-  switch (tool.name) {
-    case 'bash' || 'pwsh':
+  switch (tool.name.toLowerCase()) {
+    case 'bash' ||
+        'pwsh' ||
+        'run_command' ||
+        'exec_command' ||
+        'shell_command' ||
+        'command_status' ||
+        'send_command_input' ||
+        'manage_task':
       return ToolKind.command;
-    case 'write' || 'edit':
+    case 'write' ||
+        'edit' ||
+        'write_file' ||
+        'write_to_file' ||
+        'edit_file' ||
+        'replace_file_content' ||
+        'multi_replace_file_content' ||
+        'apply_patch' ||
+        'notebook_edit' ||
+        'sed_file':
       return ToolKind.edit;
     case 'str_replace_editor':
       return _cachedView(tool).arg('command') == 'view' ? ToolKind.read : ToolKind.edit;
-    case 'read' || 'read_image':
+    case 'read' ||
+        'read_image' ||
+        'read_file' ||
+        'view_file' ||
+        'list_dir' ||
+        'read_resource' ||
+        'list_resources':
       return ToolKind.read;
-    case 'grep' || 'glob':
+    case 'grep' || 'glob' || 'grep_search' || 'find_by_name' || 'code_search':
       return ToolKind.search;
-    case 'web_fetch' || 'web_search':
+    case 'web_fetch' ||
+        'web_search' ||
+        'search_web' ||
+        'read_url_content' ||
+        'open_browser_url' ||
+        'read_browser_page':
       return ToolKind.web;
-    case 'subagent' || 'subagent_fork' || 'send_message' || 'interrupt_agent' || 'workflow' || 'ralph':
+    case 'subagent' ||
+        'subagent_fork' ||
+        'send_message' ||
+        'interrupt_agent' ||
+        'workflow' ||
+        'ralph' ||
+        'invoke_subagent' ||
+        'define_subagent' ||
+        'manage_subagents' ||
+        'run_workflow' ||
+        'swarm' ||
+        'browser_subagent':
       return ToolKind.agent;
-    case 'todo_write':
+    case 'todo_write' || 'update_steps' || 'enter_plan_mode' || 'exit_plan_mode':
       return ToolKind.todo;
     default:
       return ToolKind.other;

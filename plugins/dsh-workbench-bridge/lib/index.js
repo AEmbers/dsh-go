@@ -2,6 +2,7 @@
  * @file DSH Workbench Bridge 插件入口：向 DSH webServer 注册多 CLI 聚合路由，并可选挂载到 ds-harness-remote E2EE RPC 通道。
  */
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,7 +17,7 @@ import {
 import { makeBridgeGuard } from './guard.js';
 import { listCliEngineModels } from './models.js';
 import { CliRunManager } from './runner.js';
-import { CLI_ENGINES, computeEtag, isSafeSessionId } from './scanners/common.js';
+import { CLI_ENGINES, computeEtag, isSafeSessionId, stripBridgeAttachmentBlock } from './scanners/common.js';
 import { probeCliEngines, readCliSessionMessages, scanAllCliSessions } from './scanners/index.js';
 
 export const name = 'dsh-workbench-bridge';
@@ -190,7 +191,26 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     return { payload, etag };
   }
 
-  function buildMessagesPayload(engine, rawId) {
+  function computePrefixHash(messages, count) {
+    if (count <= 0) return 'empty';
+    // 用轻量摘要指纹代表前 count 条已稳定历史消息，避免每轮全量 stringify 整份超大数组。
+    const sig = [];
+    for (let i = 0; i < count; i += 1) {
+      const m = messages[i];
+      const parts = Array.isArray(m?.parts) ? m.parts : [];
+      let textLen = 0;
+      let firstType = '';
+      for (const p of parts) {
+        if (!firstType && p?.type) firstType = p.type;
+        if (typeof p?.text === 'string') textLen += p.text.length;
+        else if (typeof p?.arguments === 'string') textLen += p.arguments.length;
+      }
+      sig.push(`${m?.messageId || i}:${m?.role || ''}:${parts.length}:${firstType}:${textLen}`);
+    }
+    return computeEtag(sig.join('|'));
+  }
+
+  function buildMessagesSnapshotInternal(engine, rawId) {
     if (!CLI_ENGINES.has(engine) || !isSafeSessionId(rawId)) {
       const err = new Error('Invalid engine or session id');
       err.status = 400;
@@ -203,11 +223,46 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     const messages = [...read.messages];
 
     if (overlay) {
-      // 当刚发出的 prompt 尚未落盘时附加到尾部，确保手机端实时看到发送与输出
-      const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-      const lastUserText = lastUser?.parts?.find((p) => p.type === 'text')?.text?.trim();
-      if (lastUserText !== overlay.prompt.trim()) {
-        const userParts = [{ type: 'text', text: overlay.prompt }];
+      // 当刚发出的 prompt 尚未落盘时附加到尾部，确保手机端实时看到发送与输出；
+      // 严密判断已落盘情况（含剥离附件块后的正文匹配、纯图片附件匹配、以及该轮后续已有落盘步骤），
+      // 彻底避免带图消息在思考/工具下方重复出现。
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i]?.role === 'user') {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      const lastUser = lastUserIdx >= 0 ? messages[lastUserIdx] : null;
+      const lastUserText = stripBridgeAttachmentBlock(
+        lastUser?.parts?.find((p) => p.type === 'text')?.text || '',
+      ).trim();
+      const expectedRaw = (overlay.rawPrompt ?? overlay.prompt ?? '').trim();
+      const expectedDisplay = (overlay.prompt ?? '').trim();
+      const hasSubsequentDiskMessages =
+        lastUserIdx >= 0 &&
+        messages.slice(lastUserIdx + 1).some((m) => (m.createdAt || 0) >= overlay.startedAt - 5_000);
+      const lastUserHasMatchingAttachment =
+        Array.isArray(overlay.attachments) &&
+        overlay.attachments.length > 0 &&
+        (lastUser?.parts || []).some(
+          (p) =>
+            (p.type === 'image' || p.type === 'file') &&
+            overlay.attachments.some((a) => a.name && p.attachment?.name === a.name),
+        );
+      const userAlreadyPersisted =
+        lastUser != null &&
+        (hasSubsequentDiskMessages ||
+          (expectedRaw.length > 0 && (lastUserText === expectedRaw || lastUserText === expectedDisplay)) ||
+          (expectedRaw.length === 0 &&
+            lastUserHasMatchingAttachment &&
+            (lastUser.createdAt || 0) >= overlay.startedAt - 15_000));
+
+      if (!userAlreadyPersisted) {
+        const userParts = [];
+        if (expectedRaw.length > 0 || !Array.isArray(overlay.attachments) || overlay.attachments.length === 0) {
+          userParts.push({ type: 'text', text: overlay.prompt });
+        }
         if (Array.isArray(overlay.attachments)) {
           for (const att of overlay.attachments) {
             const isImg =
@@ -242,6 +297,7 @@ export function createWorkbenchRoutes(ctx, options = {}) {
           parts: userParts,
         });
       }
+
       if (overlay.running || overlay.assistantText || overlay.assistantReasoning || overlay.errorText) {
         const parts = [];
         if (overlay.assistantReasoning) {
@@ -253,31 +309,262 @@ export function createWorkbenchRoutes(ctx, options = {}) {
           parts.push({ type: 'text', text: overlay.errorText.trim() });
         }
         if (parts.length > 0) {
-          messages.push({
-            messageId: `run-assistant-${overlay.runId}`,
-            role: 'assistant',
-            createdAt: overlay.updatedAt,
-            model: overlay.model || read.model,
-            parts,
-          });
+          const lastDisk = messages[messages.length - 1];
+          const lastDiskText = lastDisk?.role === 'assistant'
+            ? (lastDisk.parts || []).filter((p) => p.type === 'text').map((p) => p.text).join('\n').trim()
+            : '';
+          const lastDiskReasoning = lastDisk?.role === 'assistant'
+            ? (lastDisk.parts || []).filter((p) => p.type === 'reasoning').map((p) => p.text).join('\n').trim()
+            : '';
+          const overlayTextTrim = (overlay.assistantText || '').trim();
+          const overlayReasonTrim = (overlay.assistantReasoning || '').trim();
+          const alreadyFlushedToDisk =
+            lastDisk?.role === 'assistant' &&
+            (lastDisk.createdAt || 0) >= overlay.startedAt - 2_000 &&
+            ((overlayTextTrim && lastDiskText === overlayTextTrim) ||
+              (!overlayTextTrim && overlayReasonTrim && lastDiskReasoning === overlayReasonTrim) ||
+              (!overlay.running && !overlay.errorText && lastDiskText.length > 0));
+          if (!alreadyFlushedToDisk) {
+            messages.push({
+              messageId: `run-assistant-${overlay.runId}`,
+              role: 'assistant',
+              createdAt: overlay.updatedAt,
+              model: overlay.model || read.model,
+              parts,
+            });
+          }
         }
       }
     }
 
+    const bounded = boundMessagesBySize(messages);
+    const running = Boolean(overlay?.running || read.running);
+    const resolvedSessionId =
+      overlay?.resolvedRawId && overlay.resolvedRawId !== rawId
+        ? `cli:${engine}:${overlay.resolvedRawId}`
+        : null;
+    const stableCount = bounded.length > 0 ? bounded.length - 1 : 0;
+    const prefixHash = computePrefixHash(bounded, stableCount);
+    const etag = computeEtag(
+      JSON.stringify({
+        running,
+        resolvedSessionId,
+        model: overlay?.model || read.model || null,
+        len: bounded.length,
+        prefixHash,
+        tail: bounded.slice(-2),
+      }),
+    );
+
     return {
-      ok: true,
-      engine,
-      rawId,
-      sessionId: `cli:${engine}:${rawId}`,
-      resolvedSessionId:
-        overlay?.resolvedRawId && overlay.resolvedRawId !== rawId
-          ? `cli:${engine}:${overlay.resolvedRawId}`
-          : null,
-      model: overlay?.model || read.model || null,
-      cwd: overlay?.cwd || read.cwd || null,
-      running: Boolean(overlay?.running || read.running),
-      messages: boundMessagesBySize(messages),
+      payload: {
+        ok: true,
+        engine,
+        rawId,
+        sessionId: `cli:${engine}:${rawId}`,
+        resolvedSessionId,
+        model: overlay?.model || read.model || null,
+        cwd: overlay?.cwd || read.cwd || null,
+        running,
+        etag,
+        totalCount: bounded.length,
+        stableCount,
+        prefixHash,
+        messages: bounded,
+      },
+      logPath: read.logPath || null,
+      targetReadId,
     };
+  }
+
+  function applyDeltaIfEligible(fullPayload, opts = {}) {
+    const afterCount = Number.isInteger(opts.afterCount) && opts.afterCount >= 0 ? opts.afterCount : null;
+    const baseHash = typeof opts.baseHash === 'string' && opts.baseHash ? opts.baseHash : null;
+    if (afterCount !== null && baseHash && afterCount <= fullPayload.messages.length) {
+      const actualHash = computePrefixHash(fullPayload.messages, afterCount);
+      if (actualHash === baseHash) {
+        return {
+          ...fullPayload,
+          delta: true,
+          replaceFrom: afterCount,
+          messages: fullPayload.messages.slice(afterCount),
+        };
+      }
+    }
+    return fullPayload;
+  }
+
+  function buildMessagesPayload(engine, rawId, opts = {}) {
+    const { payload } = buildMessagesSnapshotInternal(engine, rawId);
+    const ifNoneMatch = typeof opts.ifNoneMatch === 'string' && opts.ifNoneMatch ? opts.ifNoneMatch : null;
+    if (ifNoneMatch && ifNoneMatch === payload.etag) {
+      return {
+        ok: true,
+        notModified: true,
+        engine: payload.engine,
+        rawId: payload.rawId,
+        sessionId: payload.sessionId,
+        resolvedSessionId: payload.resolvedSessionId,
+        model: payload.model,
+        cwd: payload.cwd,
+        running: payload.running,
+        etag: payload.etag,
+        totalCount: payload.totalCount,
+        stableCount: payload.stableCount,
+        prefixHash: payload.prefixHash,
+        messages: [],
+      };
+    }
+    return applyDeltaIfEligible(payload, opts);
+  }
+
+  /**
+   * 异步读取会话消息，支持 ETag 304、增量 delta 以及长轮询即时唤醒（监听 CLI 流式输出与 transcript 文件变化）。
+   *
+   * @param {string} engine
+   * @param {string} rawId
+   * @param {{ ifNoneMatch?: string | null, afterCount?: number | null, baseHash?: string | null, waitMs?: number }} [opts]
+   * @returns {Promise<object>}
+   */
+  async function buildMessagesPayloadAsync(engine, rawId, opts = {}) {
+    const ifNoneMatch = typeof opts.ifNoneMatch === 'string' && opts.ifNoneMatch ? opts.ifNoneMatch : null;
+    const waitMsRaw = typeof opts.waitMs === 'number' && Number.isFinite(opts.waitMs) ? Math.trunc(opts.waitMs) : 0;
+    const waitMs = Math.max(0, Math.min(25_000, waitMsRaw));
+
+    const first = buildMessagesSnapshotInternal(engine, rawId);
+    if (!ifNoneMatch || first.payload.etag !== ifNoneMatch || waitMs <= 0) {
+      if (ifNoneMatch && first.payload.etag === ifNoneMatch) {
+        return {
+          ok: true,
+          notModified: true,
+          engine: first.payload.engine,
+          rawId: first.payload.rawId,
+          sessionId: first.payload.sessionId,
+          resolvedSessionId: first.payload.resolvedSessionId,
+          model: first.payload.model,
+          cwd: first.payload.cwd,
+          running: first.payload.running,
+          etag: first.payload.etag,
+          totalCount: first.payload.totalCount,
+          stableCount: first.payload.stableCount,
+          prefixHash: first.payload.prefixHash,
+          messages: [],
+        };
+      }
+      return applyDeltaIfEligible(first.payload, opts);
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const cleanups = [];
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        for (const fn of cleanups) {
+          try {
+            fn();
+          } catch {
+            // ignore cleanup error
+          }
+        }
+        resolve(result);
+      };
+
+      const checkNow = () => {
+        if (settled) return;
+        try {
+          const next = buildMessagesSnapshotInternal(engine, rawId);
+          if (next.payload.etag !== ifNoneMatch) {
+            finish(applyDeltaIfEligible(next.payload, opts));
+          }
+        } catch {
+          // 忽略偶发瞬时读取异常，等待下一次触发或超时
+        }
+      };
+
+      cleanups.push(runner.subscribe(engine, rawId, checkNow));
+      if (first.targetReadId && first.targetReadId !== rawId) {
+        cleanups.push(runner.subscribe(engine, first.targetReadId, checkNow));
+      }
+
+      const logPath = first.logPath;
+      let lastStatSig = '';
+      if (logPath) {
+        try {
+          if (fs.existsSync(logPath)) {
+            const st = fs.statSync(logPath);
+            lastStatSig = `${st.size}:${st.mtimeMs}`;
+            const watcher = fs.watch(logPath, { persistent: false }, () => checkNow());
+            watcher.on('error', () => {});
+            cleanups.push(() => watcher.close());
+          }
+        } catch {
+          // Windows 下文件尚未创建或权限受限时仅依赖轻量 stat 兜底
+        }
+        const pollInterval = setInterval(() => {
+          if (settled) return;
+          try {
+            if (fs.existsSync(logPath)) {
+              const st = fs.statSync(logPath);
+              const sig = `${st.size}:${st.mtimeMs}`;
+              if (sig !== lastStatSig) {
+                lastStatSig = sig;
+                checkNow();
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }, 200);
+        pollInterval.unref?.();
+        cleanups.push(() => clearInterval(pollInterval));
+      }
+
+      const timer = setTimeout(() => {
+        try {
+          const latest = buildMessagesSnapshotInternal(engine, rawId);
+          if (latest.payload.etag !== ifNoneMatch) {
+            finish(applyDeltaIfEligible(latest.payload, opts));
+            return;
+          }
+          finish({
+            ok: true,
+            notModified: true,
+            engine: latest.payload.engine,
+            rawId: latest.payload.rawId,
+            sessionId: latest.payload.sessionId,
+            resolvedSessionId: latest.payload.resolvedSessionId,
+            model: latest.payload.model,
+            cwd: latest.payload.cwd,
+            running: latest.payload.running,
+            etag: latest.payload.etag,
+            totalCount: latest.payload.totalCount,
+            stableCount: latest.payload.stableCount,
+            prefixHash: latest.payload.prefixHash,
+            messages: [],
+          });
+        } catch {
+          finish({
+            ok: true,
+            notModified: true,
+            engine: first.payload.engine,
+            rawId: first.payload.rawId,
+            sessionId: first.payload.sessionId,
+            resolvedSessionId: first.payload.resolvedSessionId,
+            model: first.payload.model,
+            cwd: first.payload.cwd,
+            running: first.payload.running,
+            etag: first.payload.etag,
+            totalCount: first.payload.totalCount,
+            stableCount: first.payload.stableCount,
+            prefixHash: first.payload.prefixHash,
+            messages: [],
+          });
+        }
+      }, waitMs);
+      timer.unref?.();
+      cleanups.push(() => clearTimeout(timer));
+    });
   }
 
   async function buildModelsPayload(engine, opts = {}) {
@@ -349,7 +636,26 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     const blocked = rejectIfNeeded(req);
     if (blocked) return blocked;
     try {
-      return jsonResponse(200, buildMessagesPayload(engine, rawId));
+      const url = new URL(req?.url ?? '/', 'http://localhost');
+      const ifNoneMatch =
+        (typeof req?.headers?.get === 'function' ? req.headers.get('if-none-match') : req?.headers?.['if-none-match']) ||
+        url.searchParams.get('ifNoneMatch') ||
+        null;
+      const afterCountRaw = url.searchParams.get('afterCount');
+      const afterCount = afterCountRaw !== null && afterCountRaw !== '' ? Number.parseInt(afterCountRaw, 10) : null;
+      const baseHash = url.searchParams.get('baseHash') || null;
+      const waitMsRaw = url.searchParams.get('waitMs');
+      const waitMs = waitMsRaw !== null && waitMsRaw !== '' ? Number.parseInt(waitMsRaw, 10) : 0;
+      const payload = await buildMessagesPayloadAsync(engine, rawId, {
+        ifNoneMatch,
+        afterCount: Number.isInteger(afterCount) ? afterCount : null,
+        baseHash,
+        waitMs: Number.isFinite(waitMs) ? waitMs : 0,
+      });
+      if (payload.notModified && payload.etag) {
+        return new Response(null, { status: 304, headers: { etag: payload.etag } });
+      }
+      return jsonResponse(200, payload, payload.etag ? { etag: payload.etag } : {});
     } catch (err) {
       return jsonResponse(err.status || 400, { code: err.code || 'invalid_target', message: err.message });
     }
@@ -486,6 +792,7 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     buildHealthPayload,
     buildSessionsPayload,
     buildMessagesPayload,
+    buildMessagesPayloadAsync,
     buildModelsPayload,
     runUploadPayload,
     runPromptPayload,
@@ -636,8 +943,16 @@ export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
             }
             return { ...payload, etag };
           }
-          case 'workbench.bridge.messages':
-            return routes.buildMessagesPayload(String(p.engine || ''), String(p.rawId || ''));
+          case 'workbench.bridge.messages': {
+            const afterCount = Number.isInteger(p.afterCount) ? p.afterCount : null;
+            const waitMs = typeof p.waitMs === 'number' && Number.isFinite(p.waitMs) ? p.waitMs : 0;
+            return await routes.buildMessagesPayloadAsync(String(p.engine || ''), String(p.rawId || ''), {
+              ifNoneMatch: typeof p.ifNoneMatch === 'string' ? p.ifNoneMatch : null,
+              afterCount,
+              baseHash: typeof p.baseHash === 'string' ? p.baseHash : null,
+              waitMs,
+            });
+          }
           case 'workbench.bridge.models':
             return await routes.buildModelsPayload(String(p.engine || ''), { refresh: p.refresh === true });
           case 'workbench.bridge.upload':

@@ -119,10 +119,16 @@ export function parseCliStreamLine(line) {
       const sid = su.conversation_id;
       const textDelta = typeof su.text_delta === 'string' ? su.text_delta : undefined;
       const reasoningDelta = typeof su.thinking_delta === 'string' ? su.thinking_delta : undefined;
+      const stepIndex = typeof su.step_index === 'number' ? su.step_index : undefined;
+      const stepState = typeof su.state === 'string' ? su.state : undefined;
+      const stepType = typeof su.step_type === 'string' ? su.step_type : undefined;
       return {
         sessionId: typeof sid === 'string' && isSafeSessionId(sid) ? sid : undefined,
         textDelta,
         reasoningDelta,
+        stepIndex,
+        stepState,
+        stepType,
       };
     }
     if (obj.event === 'result' && obj.result && typeof obj.result === 'object') {
@@ -184,6 +190,78 @@ export class CliRunManager {
     this._resolvedIds = new Map();
     /** @type {Map<string, { uploadId: string, path: string, dir: string, name: string, mediaType: string, bytes: number, done: boolean, createdAt: number }>} */
     this._uploads = new Map();
+    /** @type {Map<string, Set<() => void>>} key: "engine:rawId" */
+    this._listeners = new Map();
+    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+    this._notifyTimers = new Map();
+  }
+
+  /**
+   * 订阅指定外部 CLI 会话的实时流式增量与状态变更（用于长轮询即时唤醒）。
+   *
+   * @param {string} engine
+   * @param {string} rawId
+   * @param {() => void} listener
+   * @returns {() => void}
+   */
+  subscribe(engine, rawId, listener) {
+    const key = `${engine}:${rawId}`;
+    let set = this._listeners.get(key);
+    if (!set) {
+      set = new Set();
+      this._listeners.set(key, set);
+    }
+    set.add(listener);
+    return () => {
+      const current = this._listeners.get(key);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) {
+        this._listeners.delete(key);
+      }
+    };
+  }
+
+  /**
+   * 触发指定会话的变更通知（流式增量默认 60ms 节流合并，启停事件立即唤醒）。
+   *
+   * @param {string} engine
+   * @param {string} rawId
+   * @param {{ immediate?: boolean }} [opts]
+   */
+  _emitChange(engine, rawId, opts = {}) {
+    if (!rawId) return;
+    const key = `${engine}:${rawId}`;
+    const fire = () => {
+      const t = this._notifyTimers.get(key);
+      if (t) {
+        clearTimeout(t);
+        this._notifyTimers.delete(key);
+      }
+      const listeners = this._listeners.get(key);
+      if (!listeners || listeners.size === 0) return;
+      for (const fn of [...listeners]) {
+        try {
+          fn();
+        } catch {
+          // ignore listener error
+        }
+      }
+    };
+    if (opts.immediate) {
+      fire();
+      return;
+    }
+    if (this._notifyTimers.has(key)) return;
+    this._notifyTimers.set(key, setTimeout(fire, 60));
+  }
+
+  _notifyState(state, opts = {}) {
+    state.version = (state.version || 0) + 1;
+    this._emitChange(state.engine, state.rawId, opts);
+    if (state.resolvedRawId && state.resolvedRawId !== state.rawId) {
+      this._emitChange(state.engine, state.resolvedRawId, opts);
+    }
   }
 
   /**
@@ -496,6 +574,7 @@ export class CliRunManager {
       resolvedRawId: cliSessionArgId,
       sessionId: `cli:${engine}:${rawId}`,
       cwd,
+      rawPrompt,
       prompt: displayPrompt,
       attachments: attachments.map((a) => ({
         uploadId: a.uploadId,
@@ -508,33 +587,59 @@ export class CliRunManager {
       running: true,
       startedAt: Date.now(),
       updatedAt: Date.now(),
+      activeStepIndex: null,
       assistantText: '',
       assistantReasoning: '',
       errorText: '',
       exitCode: null,
+      version: 1,
       child,
     };
     this._runs.set(key, state);
+    this._notifyState(state, { immediate: true });
 
     let lineBuffer = '';
     const applyParsed = (parsed) => {
       if (!parsed) return;
+      let changed = false;
       if (parsed.sessionId && !state.resolvedRawId) {
         state.resolvedRawId = parsed.sessionId;
         this._resolvedIds.set(`${engine}:${rawId}`, parsed.sessionId);
+        changed = true;
       }
-      if (parsed.reasoningDelta) state.assistantReasoning += parsed.reasoningDelta;
+      // Antigravity 多步推理：当 step_index 切换到新步骤时清空旧步骤的流式暂存，避免与已落盘的旧步骤重复拼接。
+      if (typeof parsed.stepIndex === 'number' && parsed.stepType && parsed.stepType !== 'user_input') {
+        if (state.activeStepIndex !== null && parsed.stepIndex !== state.activeStepIndex) {
+          state.assistantText = '';
+          state.assistantReasoning = '';
+          changed = true;
+        }
+        state.activeStepIndex = parsed.stepIndex;
+      }
+      if (parsed.reasoningDelta) {
+        state.assistantReasoning += parsed.reasoningDelta;
+        changed = true;
+      }
       if (parsed.reasoning) {
         state.assistantReasoning += (state.assistantReasoning && !state.assistantReasoning.endsWith('\n') ? '\n' : '') + parsed.reasoning;
+        changed = true;
       }
-      if (parsed.textDelta) state.assistantText += parsed.textDelta;
+      if (parsed.textDelta) {
+        state.assistantText += parsed.textDelta;
+        changed = true;
+      }
       if (parsed.text) {
         state.assistantText += (state.assistantText && !state.assistantText.endsWith('\n') ? '\n' : '') + parsed.text;
+        changed = true;
       }
       if (parsed.finalText && !state.assistantText.trim()) {
         state.assistantText = parsed.finalText;
+        changed = true;
       }
-      state.updatedAt = Date.now();
+      if (changed || parsed.stepState === 'DONE') {
+        state.updatedAt = Date.now();
+        this._notifyState(state, { immediate: parsed.stepState === 'DONE' || Boolean(parsed.finalText) });
+      }
     };
 
     const handleChunk = (chunk) => {
@@ -550,6 +655,7 @@ export class CliRunManager {
     child.stderr?.on('data', (chunk) => {
       state.errorText += chunk.toString('utf8');
       state.updatedAt = Date.now();
+      this._notifyState(state);
     });
 
     const finish = (code) => {
@@ -564,6 +670,7 @@ export class CliRunManager {
       state.exitCode = code;
       state.updatedAt = Date.now();
       state.child = null;
+      this._notifyState(state, { immediate: true });
     };
 
     child.on('error', (err) => {
@@ -603,6 +710,7 @@ export class CliRunManager {
     }
     state.running = false;
     state.updatedAt = Date.now();
+    this._notifyState(state, { immediate: true });
     return true;
   }
 
@@ -638,9 +746,14 @@ export class CliRunManager {
   }
 
   /**
-   * 销毁时清理全部尚未退出的子进程。
+   * 销毁时清理全部尚未退出的子进程与事件定时器。
    */
   dispose() {
+    for (const timer of this._notifyTimers.values()) {
+      clearTimeout(timer);
+    }
+    this._notifyTimers.clear();
+    this._listeners.clear();
     for (const state of this._runs.values()) {
       if (state.running && state.child) {
         try {

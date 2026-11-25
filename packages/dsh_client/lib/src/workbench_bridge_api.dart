@@ -232,6 +232,12 @@ class WorkbenchCliChatSnapshot {
     this.resolvedSessionId,
     this.model,
     this.cwd,
+    this.notModified = false,
+    this.delta = false,
+    this.replaceFrom = 0,
+    this.etag,
+    this.prefixHash,
+    this.stableCount,
   });
 
   factory WorkbenchCliChatSnapshot.fromJson(Map<String, Object?> json) {
@@ -247,6 +253,12 @@ class WorkbenchCliChatSnapshot {
       resolvedSessionId: asString(json['resolvedSessionId']),
       model: asString(json['model']),
       cwd: asString(json['cwd']),
+      notModified: json['notModified'] == true,
+      delta: json['delta'] == true,
+      replaceFrom: asInt(json['replaceFrom']) ?? 0,
+      etag: asString(json['etag']),
+      prefixHash: asString(json['prefixHash']),
+      stableCount: asInt(json['stableCount']),
       messages: [
         for (final entry in rawMsgs)
           if (asMap(entry) case final map?) WorkbenchCliMessage.fromJson(map),
@@ -261,6 +273,12 @@ class WorkbenchCliChatSnapshot {
   final String? resolvedSessionId;
   final String? model;
   final String? cwd;
+  final bool notModified;
+  final bool delta;
+  final int replaceFrom;
+  final String? etag;
+  final String? prefixHash;
+  final int? stableCount;
   final List<WorkbenchCliMessage> messages;
 }
 
@@ -406,28 +424,64 @@ extension WorkbenchBridgeApi on DshClient {
   }
 
   /// `GET /plugins/dsh-workbench-bridge/sessions/:engine/:id/messages` or RPC.
+  /// Supports conditional ETag (`ifNoneMatch`), prefix-verified incremental delta
+  /// (`afterCount` + `baseHash`), and server-side long-polling (`waitMs`).
   Future<WorkbenchCliChatSnapshot> readWorkbenchBridgeMessages(
     CliEngine engine,
     String rawId, {
+    String? ifNoneMatch,
+    int? afterCount,
+    String? baseHash,
+    int? waitMs,
     Duration timeout = const Duration(seconds: 20),
   }) async {
     _requireSafeId(rawId, 'rawId');
+    final effectiveTimeout = waitMs != null && waitMs > 0
+        ? Duration(milliseconds: waitMs + 12000) > timeout
+              ? Duration(milliseconds: waitMs + 12000)
+              : timeout
+        : timeout;
     if (carrier is! DshHttpCarrier) {
       final body = await _callRpcBridge(
         'workbench.bridge.messages',
-        {'engine': engine.wire, 'rawId': rawId},
-        timeout,
+        {
+          'engine': engine.wire,
+          'rawId': rawId,
+          if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) 'ifNoneMatch': ifNoneMatch,
+          if (afterCount != null && afterCount >= 0) 'afterCount': afterCount,
+          if (baseHash != null && baseHash.isNotEmpty) 'baseHash': baseHash,
+          if (waitMs != null && waitMs > 0) 'waitMs': waitMs,
+        },
+        effectiveTimeout,
       );
       return WorkbenchCliChatSnapshot.fromJson(body);
     }
-    final path = '/plugins/dsh-workbench-bridge/sessions/${engine.wire}/${Uri.encodeComponent(rawId)}/messages';
-    final connection = _bridgeConnection(path);
+    final query = <String, String>{
+      if (afterCount != null && afterCount >= 0) 'afterCount': '$afterCount',
+      if (baseHash != null && baseHash.isNotEmpty) 'baseHash': baseHash,
+      if (waitMs != null && waitMs > 0) 'waitMs': '$waitMs',
+    };
+    final basePath = '/plugins/dsh-workbench-bridge/sessions/${engine.wire}/${Uri.encodeComponent(rawId)}/messages';
+    final path = query.isEmpty ? basePath : '$basePath?${Uri(queryParameters: query).query}';
+    final connection = _bridgeConnection(basePath);
     final response = await _bridgeGet(
       connection,
       connection.resolve(path),
+      ifNoneMatch: ifNoneMatch,
       maxBytes: _maxReplyBytes,
-      timeout: timeout,
+      timeout: effectiveTimeout,
     );
+    if (response.statusCode == 304) {
+      return WorkbenchCliChatSnapshot(
+        engine: engine,
+        rawId: rawId,
+        sessionId: 'cli:${engine.wire}:$rawId',
+        running: false,
+        messages: const [],
+        notModified: true,
+        etag: response.etag ?? ifNoneMatch,
+      );
+    }
     if (response.statusCode == 404 || response.statusCode == 405 || response.statusCode == 501 || response.statusCode == 503) {
       throw const WorkbenchBridgeUnavailableException();
     }

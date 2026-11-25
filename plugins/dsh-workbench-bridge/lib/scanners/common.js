@@ -8,6 +8,102 @@ import path from 'node:path';
 /** 支持的外部 CLI 引擎标识 */
 export const CLI_ENGINES = new Set(['antigravity', 'claude', 'codex']);
 
+/** 桥接层发送附件时注入到 CLI prompt 末尾的固定标记 */
+export const BRIDGE_ATTACHMENT_MARKER = '[用户附带的本地文件，请直接读取分析]';
+/** 纯发图/附件无正文时桥接层自动填充的默认占位句 */
+export const BRIDGE_DEFAULT_IMAGE_PROMPT = '请查看并分析用户附带的图片或文件。';
+
+const IMAGE_MIME_RE = /^image\//i;
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i;
+const ATTACHMENT_LINE_RE = /^-\s+(.+?)\s+\(([^()]+)\):\s+(.+)$/;
+
+/**
+ * 清洗外部 CLI 工具名前缀（如 `default_api:read_file` -> `read_file`）。
+ *
+ * @param {unknown} rawName
+ * @returns {string}
+ */
+export function normalizeCliToolName(rawName) {
+  const s = typeof rawName === 'string' ? rawName.trim() : '';
+  if (!s) return 'tool';
+  return s.replace(/^(?:default_api|functions|tools):/i, '');
+}
+
+/**
+ * 从用户消息正文中剥离桥接层注入的 `[用户附带的本地文件，请直接读取分析]` 块，
+ * 并将其还原为标准图片/文件附件 part 列表，避免聊天界面暴露裸路径文本。
+ *
+ * @param {unknown} rawText
+ * @returns {{ text: string, attachments: Array<object> }}
+ */
+export function extractBridgeAttachmentsFromText(rawText) {
+  if (typeof rawText !== 'string' || !rawText) {
+    return { text: '', attachments: [] };
+  }
+  const idx = rawText.indexOf(BRIDGE_ATTACHMENT_MARKER);
+  if (idx < 0) {
+    return { text: rawText, attachments: [] };
+  }
+  let cleanText = rawText.slice(0, idx).trim();
+  if (cleanText === BRIDGE_DEFAULT_IMAGE_PROMPT) {
+    cleanText = '';
+  }
+  const block = rawText.slice(idx + BRIDGE_ATTACHMENT_MARKER.length);
+  const attachments = [];
+  for (const line of block.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const m = ATTACHMENT_LINE_RE.exec(trimmed);
+    if (!m) continue;
+    const name = m[1].trim();
+    const mediaType = m[2].trim();
+    let filePath = m[3].trim();
+    if (/^file:\/\//i.test(filePath)) filePath = decodeFileUri(filePath);
+    if (/^\/[A-Za-z]:[\\/]/.test(filePath)) filePath = filePath.slice(1);
+    if (!filePath) continue;
+    let bytes;
+    try {
+      if (fs.existsSync(filePath)) {
+        bytes = fs.statSync(filePath).size;
+      }
+    } catch {
+      // 忽略 stat 异常
+    }
+    const isImage = IMAGE_MIME_RE.test(mediaType) || IMAGE_EXT_RE.test(name);
+    if (isImage) {
+      attachments.push({
+        type: 'image',
+        attachment: {
+          attachmentId: `wb-file:${filePath}`,
+          mediaType: IMAGE_MIME_RE.test(mediaType) ? mediaType : 'image/jpeg',
+          name: name || path.basename(filePath),
+          ...(bytes !== undefined ? { bytes } : {}),
+        },
+      });
+    } else {
+      attachments.push({
+        type: 'file',
+        attachment: {
+          attachmentId: `wb-file:${filePath}`,
+          name: name || path.basename(filePath),
+          ...(bytes !== undefined ? { bytes } : {}),
+        },
+      });
+    }
+  }
+  return { text: cleanText, attachments };
+}
+
+/**
+ * 仅剥离桥接层附件注入块，返回纯净用户输入正文（用于标题提取与去重比对）。
+ *
+ * @param {unknown} rawText
+ * @returns {string}
+ */
+export function stripBridgeAttachmentBlock(rawText) {
+  return extractBridgeAttachmentsFromText(rawText).text;
+}
+
 /**
  * 校验外部会话 rawId，防止路径穿越或非法字符注入。
  *

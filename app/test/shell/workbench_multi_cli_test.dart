@@ -11,6 +11,9 @@ import 'package:dsh_app/state/workbench_bridge_state.dart';
 import 'package:dsh_app/state/workspaces_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/model_sheet.dart';
+import 'package:dsh_app/ui/chat/tool_view.dart';
+import 'package:dsh_app/ui/chat/turn_summary.dart';
+import 'package:dsh_app/ui/common/tool_glyph.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
 import 'package:dsh_app/ui/shell/workbench/workbench_chrome.dart';
 import 'package:dsh_app/ui/theme/glass.dart';
@@ -380,5 +383,59 @@ void main() {
       (b) => b.color == const Color(0xFFE7EEF5),
     );
     expect(hardcodedBoxes, isEmpty);
+  });
+
+  test('external CLI tool names map cleanly in TurnSummary, ToolGlyphs, and ToolView without falling into Other', () {
+    final tools = [
+      const ToolChatItem(
+        callId: 'c1',
+        name: 'read_file',
+        arguments: '{"Path":"D:/dev/app/lib/main.dart"}',
+        status: ToolStatus.succeeded,
+        seq: 1,
+      ),
+      const ToolChatItem(
+        callId: 'c2',
+        name: 'edit_file',
+        arguments: '{"Path":"D:/dev/app/lib/state.dart"}',
+        status: ToolStatus.succeeded,
+        seq: 2,
+      ),
+      const ToolChatItem(
+        callId: 'c3',
+        name: 'run_command',
+        arguments: '{"CommandLine":"flutter test"}',
+        status: ToolStatus.succeeded,
+        seq: 3,
+      ),
+      const ToolChatItem(
+        callId: 'c4',
+        name: 'grep_search',
+        arguments: '{"Query":"WorkbenchTabBar"}',
+        status: ToolStatus.succeeded,
+        seq: 4,
+      ),
+      const ToolChatItem(
+        callId: 'c5',
+        name: 'update_steps',
+        arguments: '{"steps":[{"title":"step1","status":"done"}]}',
+        status: ToolStatus.succeeded,
+        seq: 5,
+      ),
+    ];
+
+    final summary = summarizeTools(tools);
+    expect(summary.other, 0);
+    expect(summary.readFiles, 1);
+    expect(summary.editedFiles, 1);
+    expect(summary.commands, 1);
+    expect(summary.searches, 1);
+    expect(summary.todos, 1);
+
+    expect(ToolView.of(tools[0]).path, 'D:/dev/app/lib/main.dart');
+    expect(ToolView.of(tools[2]).command, 'flutter test');
+    expect(ToolView.of(tools[3]).summary, 'WorkbenchTabBar');
+    expect(ToolGlyphs.toneFor('read_file'), ToolGlyphs.toneFor('read'));
+    expect(ToolGlyphs.toneFor('run_command'), ToolGlyphs.toneFor('bash'));
   });
 }

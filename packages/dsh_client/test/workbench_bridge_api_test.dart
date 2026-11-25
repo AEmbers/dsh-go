@@ -187,12 +187,47 @@ void main() {
             },
           ],
         },
+        'workbench.bridge.messages' when params['ifNoneMatch'] == '"m1"' => {
+          'ok': true,
+          'notModified': true,
+          'engine': 'codex',
+          'rawId': 'cx-1',
+          'sessionId': 'cli:codex:cx-1',
+          'running': true,
+          'etag': '"m1"',
+          'messages': const <Object?>[],
+        },
+        'workbench.bridge.messages' when params['afterCount'] == 1 && params['baseHash'] == '"p1"' => {
+          'ok': true,
+          'delta': true,
+          'replaceFrom': 1,
+          'engine': 'codex',
+          'rawId': 'cx-1',
+          'sessionId': 'cli:codex:cx-1',
+          'running': true,
+          'etag': '"m2"',
+          'stableCount': 1,
+          'prefixHash': '"p1"',
+          'messages': [
+            {
+              'messageId': 'm-delta',
+              'role': 'assistant',
+              'createdAt': 1795424853000,
+              'parts': [
+                {'type': 'text', 'text': 'streaming delta'},
+              ],
+            },
+          ],
+        },
         'workbench.bridge.messages' => {
           'ok': true,
           'engine': 'codex',
           'rawId': 'cx-1',
           'sessionId': 'cli:codex:cx-1',
           'running': false,
+          'etag': '"m1"',
+          'stableCount': 0,
+          'prefixHash': 'empty',
           'messages': const <Object?>[],
         },
         'workbench.bridge.prompt' => {
@@ -251,7 +286,22 @@ void main() {
     expect(res?.sessions.single.cliEngineOrDefault, CliEngine.codex);
 
     expect(await client.readWorkbenchBridgeSessions(ifNoneMatch: '"e1"'), isNull);
-    expect((await client.readWorkbenchBridgeMessages(CliEngine.codex, 'cx-1')).engine, CliEngine.codex);
+    final baseMsg = await client.readWorkbenchBridgeMessages(CliEngine.codex, 'cx-1');
+    expect(baseMsg.engine, CliEngine.codex);
+    expect(baseMsg.etag, '"m1"');
+    final notMod = await client.readWorkbenchBridgeMessages(CliEngine.codex, 'cx-1', ifNoneMatch: '"m1"', waitMs: 5000);
+    expect(notMod.notModified, isTrue);
+    expect(notMod.etag, '"m1"');
+    final deltaMsg = await client.readWorkbenchBridgeMessages(
+      CliEngine.codex,
+      'cx-1',
+      afterCount: 1,
+      baseHash: '"p1"',
+      waitMs: 5000,
+    );
+    expect(deltaMsg.delta, isTrue);
+    expect(deltaMsg.replaceFrom, 1);
+    expect(deltaMsg.messages.single.toWireMessage().text, 'streaming delta');
     expect((await client.sendWorkbenchBridgePrompt(engine: CliEngine.codex, rawSessionId: 'cx-1', prompt: 'hi')).running, isTrue);
     expect(await client.abortWorkbenchBridgeRun(CliEngine.codex, 'cx-1'), isTrue);
 

@@ -474,7 +474,13 @@ class ChatController extends Notifier<ChatState> {
   Timer? _flush;
   Timer? _stopTimeout;
   Timer? _cliPollTimer;
+  List<WorkbenchCliMessage> _cliRawMessages = const [];
+  List<List<ChatItem>> _cliItemGroups = const [];
   List<ChatItem> _cliItems = const [];
+  String? _cliEtag;
+  String? _cliPrefixHash;
+  int? _cliStableCount;
+  int _cliSyncEpoch = 0;
   ModelSelection? _cliModel;
   bool _cliModelPinned = false;
   String? _cliCwd;
@@ -631,6 +637,7 @@ class ChatController extends Notifier<ChatState> {
       _flush = null;
       _cliPollTimer?.cancel();
       _cliPollTimer = null;
+      _cliSyncEpoch += 1;
       _stopTimeout?.cancel();
       _awayTimer?.cancel();
       unawaited(_sub?.cancel());
@@ -785,17 +792,90 @@ class ChatController extends Notifier<ChatState> {
     return '${items.length}|$running|${model?.provider}:${model?.model}:${model?.reasoningEffort}|$tail';
   }
 
-  Future<bool> _syncCliSession(DshClient client, CliSessionRef cliRef) async {
+  Future<bool> _syncCliSession(
+    DshClient client,
+    CliSessionRef cliRef, {
+    bool immediate = false,
+  }) async {
     _cliPollTimer?.cancel();
     _cliPollTimer = null;
+    final epoch = ++_cliSyncEpoch;
     try {
       await ref.read(cliModelPrefsProvider.notifier).ensureLoaded();
-      if (!ref.mounted || !identical(client, _client)) return false;
-      final snap = await client.readWorkbenchBridgeMessages(cliRef.engine, cliRef.rawId);
-      if (!ref.mounted || !identical(client, _client)) return false;
-      final nextItems = cliSnapshotToChatItems(snap);
+      if (!ref.mounted || !identical(client, _client) || epoch != _cliSyncEpoch) return false;
+      final useLongPoll = !immediate && _cliEtag != null;
+      final snap = await client.readWorkbenchBridgeMessages(
+        cliRef.engine,
+        cliRef.rawId,
+        ifNoneMatch: useLongPoll ? _cliEtag : null,
+        afterCount: useLongPoll ? _cliStableCount : null,
+        baseHash: useLongPoll ? _cliPrefixHash : null,
+        waitMs: useLongPoll ? (_cliRunning ? 12000 : 15000) : 0,
+      );
+      if (!ref.mounted || !identical(client, _client) || epoch != _cliSyncEpoch) return false;
+
+      if (snap.notModified) {
+        if (snap.etag case final etag? when etag.isNotEmpty) {
+          _cliEtag = etag;
+        }
+        if (state.loading || state.resyncing || state.error != null) {
+          state = ChatState(
+            items: _cliItems,
+            running: _cliRunning,
+            loading: false,
+            resyncing: false,
+            connection: client.mux.state,
+            model: _cliModel,
+          );
+        }
+        _scheduleNextCliSync(client, cliRef, epoch, const Duration(milliseconds: 60));
+        return true;
+      }
+
+      final prevRunning = _cliRunning;
+      final List<WorkbenchCliMessage> mergedRaw;
+      final List<List<ChatItem>> mergedGroups;
+      final fallbackModel = snap.model ?? _cliModel?.model;
+
+      if (snap.delta && snap.replaceFrom >= 0 && snap.replaceFrom <= _cliRawMessages.length) {
+        final keepRaw = _cliRawMessages.sublist(0, snap.replaceFrom);
+        mergedRaw = [...keepRaw, ...snap.messages];
+        // 如果之前最后一条处于 streaming 状态且现在后面追加了新消息，把该条重转为非 streaming。
+        final reuseCount = (prevRunning && snap.replaceFrom > 0 && snap.replaceFrom == _cliRawMessages.length && snap.messages.isNotEmpty)
+            ? snap.replaceFrom - 1
+            : snap.replaceFrom;
+        mergedGroups = [
+          ..._cliItemGroups.take(reuseCount),
+          for (var i = reuseCount; i < mergedRaw.length; i += 1)
+            cliMessageToChatItems(
+              mergedRaw[i],
+              seq: i + 1,
+              streaming: snap.running && i == mergedRaw.length - 1,
+              fallbackModel: fallbackModel,
+            ),
+        ];
+      } else {
+        mergedRaw = List<WorkbenchCliMessage>.of(snap.messages, growable: false);
+        mergedGroups = [
+          for (var i = 0; i < mergedRaw.length; i += 1)
+            cliMessageToChatItems(
+              mergedRaw[i],
+              seq: i + 1,
+              streaming: snap.running && i == mergedRaw.length - 1,
+              fallbackModel: fallbackModel,
+            ),
+        ];
+      }
+
+      final nextItems = List<ChatItem>.unmodifiable([for (final g in mergedGroups) ...g]);
+      _cliRawMessages = mergedRaw;
+      _cliItemGroups = mergedGroups;
+      _cliEtag = snap.etag;
+      _cliPrefixHash = snap.prefixHash;
+      _cliStableCount = snap.stableCount;
       _cliCwd = snap.cwd ?? _cliCwd;
       _cliRunning = snap.running;
+
       final prefs = ref.read(cliModelPrefsProvider);
       if (!_cliModelPinned) {
         if (prefs.forSession(sessionId) case final saved?) {
@@ -834,15 +914,14 @@ class ChatController extends Notifier<ChatState> {
           }
         }
       }
-      final delay = _cliRunning ? const Duration(milliseconds: 900) : const Duration(milliseconds: 2500);
-      _cliPollTimer = Timer(delay, () {
-        if (ref.mounted && identical(client, _client)) {
-          unawaited(_syncCliSession(client, cliRef));
-        }
-      });
+      // 服务端支持 etag 长轮询时立即续接下一轮（零人工卡顿）；老版无 etag 桥接则退回兼容轮询间隔。
+      final nextDelay = _cliEtag != null
+          ? (_cliRunning ? const Duration(milliseconds: 60) : const Duration(milliseconds: 120))
+          : (_cliRunning ? const Duration(milliseconds: 900) : const Duration(milliseconds: 2500));
+      _scheduleNextCliSync(client, cliRef, epoch, nextDelay);
       return true;
     } catch (error) {
-      if (!ref.mounted || !identical(client, _client)) return false;
+      if (!ref.mounted || !identical(client, _client) || epoch != _cliSyncEpoch) return false;
       state = ChatState(
         items: _cliItems,
         running: false,
@@ -852,13 +931,18 @@ class ChatController extends Notifier<ChatState> {
         connection: client.mux.state,
         model: _cliModel,
       );
-      _cliPollTimer = Timer(const Duration(seconds: 4), () {
-        if (ref.mounted && identical(client, _client)) {
-          unawaited(_syncCliSession(client, cliRef));
-        }
-      });
+      _scheduleNextCliSync(client, cliRef, epoch, const Duration(seconds: 3));
       return false;
     }
+  }
+
+  void _scheduleNextCliSync(DshClient client, CliSessionRef cliRef, int epoch, Duration delay) {
+    _cliPollTimer?.cancel();
+    _cliPollTimer = Timer(delay, () {
+      if (ref.mounted && identical(client, _client) && epoch == _cliSyncEpoch) {
+        unawaited(_syncCliSession(client, cliRef));
+      }
+    });
   }
 
   Future<bool> _sendCliPrompt(
@@ -933,7 +1017,10 @@ class ChatController extends Notifier<ChatState> {
         ref.read(currentSessionProvider.notifier).select(result.sessionId);
         return true;
       }
-      unawaited(_syncCliSession(client, cliRef));
+      _cliEtag = null;
+      _cliPrefixHash = null;
+      _cliStableCount = null;
+      unawaited(_syncCliSession(client, cliRef, immediate: true));
       unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
       return true;
     } catch (error) {
@@ -962,7 +1049,10 @@ class ChatController extends Notifier<ChatState> {
       // 忽略中止瞬时报错，交由后续刷新校准状态
     }
     if (!ref.mounted || !identical(client, _client)) return;
-    await _syncCliSession(client, cliRef);
+    _cliEtag = null;
+    _cliPrefixHash = null;
+    _cliStableCount = null;
+    await _syncCliSession(client, cliRef, immediate: true);
     unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
   }
 
@@ -974,8 +1064,11 @@ class ChatController extends Notifier<ChatState> {
     if (client == null) return Future.value(false);
     final cliRef = CliSessionRef.parse(sessionId);
     if (cliRef != null) {
+      _cliEtag = null;
+      _cliPrefixHash = null;
+      _cliStableCount = null;
       state = state.copyWith(resyncing: true);
-      return _syncCliSession(client, cliRef);
+      return _syncCliSession(client, cliRef, immediate: true);
     }
     final owner = ref;
     final attempt = _resyncOwner = Object();

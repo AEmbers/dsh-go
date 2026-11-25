@@ -5,7 +5,113 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { isSafeSessionId, readJsonlSafe, toEpochMs, walkFiles } from './common.js';
+import {
+  extractBridgeAttachmentsFromText,
+  isSafeSessionId,
+  normalizeCliToolName,
+  readJsonlSafe,
+  toEpochMs,
+  walkFiles,
+} from './common.js';
+
+const MAX_CODEX_CACHE = 48;
+/** @type {Map<string, { mtimeMs: number, size: number, leftover: string, messages: Array<object>, model: string | null, cwd: string | null }>} */
+const codexTranscriptCache = new Map();
+
+/**
+ * 将单条 Codex rollout JSONL 记录追加到消息列表中（供全量与增量读取共用）。
+ *
+ * @param {object} row
+ * @param {{ messages: Array<object>, model: string | null, cwd: string | null }} acc
+ */
+function appendCodexRow(row, acc) {
+  const createdAt = toEpochMs(row.timestamp);
+  if (row.type === 'session_meta' && row.payload) {
+    if (typeof row.payload.cwd === 'string') acc.cwd = row.payload.cwd;
+    if (typeof row.payload.model_provider === 'string') acc.model = row.payload.model_provider;
+    return;
+  }
+
+  if (row.type === 'response_item' && row.payload) {
+    const p = row.payload;
+    if (p.type === 'message' && (p.role === 'user' || p.role === 'assistant')) {
+      const parts = [];
+      for (const item of Array.isArray(p.content) ? p.content : []) {
+        if (!item || typeof item !== 'object') continue;
+        if ((item.type === 'input_text' || item.type === 'output_text' || item.type === 'text') && item.text) {
+          const text = String(item.text);
+          if (p.role === 'user' && /^<(?:environment_context|permissions instructions|INSTRUCTIONS)>/i.test(text.trim())) {
+            continue;
+          }
+          if (p.role === 'user') {
+            const extracted = extractBridgeAttachmentsFromText(text);
+            if (extracted.text) parts.push({ type: 'text', text: extracted.text });
+            parts.push(...extracted.attachments);
+          } else {
+            parts.push({ type: 'text', text });
+          }
+        }
+      }
+      if (parts.length > 0) {
+        acc.messages.push({
+          messageId: `codex-${acc.messages.length}`,
+          role: p.role,
+          createdAt,
+          parts,
+        });
+      }
+    } else if (p.type === 'reasoning' && Array.isArray(p.summary)) {
+      const summaryText = p.summary.map((s) => s?.text || '').filter(Boolean).join('\n');
+      if (summaryText) {
+        acc.messages.push({
+          messageId: `codex-${acc.messages.length}`,
+          role: 'assistant',
+          createdAt,
+          parts: [{ type: 'reasoning', text: summaryText }],
+        });
+      }
+    } else if (p.type === 'function_call') {
+      acc.messages.push({
+        messageId: `codex-${acc.messages.length}`,
+        role: 'assistant',
+        createdAt,
+        parts: [
+          {
+            type: 'tool-call',
+            id: String(p.call_id || `codex-call-${acc.messages.length}`),
+            name: normalizeCliToolName(p.name),
+            arguments: typeof p.arguments === 'string' ? p.arguments : JSON.stringify(p.arguments ?? {}),
+          },
+        ],
+      });
+    }
+    return;
+  }
+
+  if (row.type === 'event_msg' && row.payload && acc.messages.length === 0) {
+    if (row.payload.type === 'user_message' && row.payload.message) {
+      const extracted = extractBridgeAttachmentsFromText(String(row.payload.message));
+      const parts = [];
+      if (extracted.text) parts.push({ type: 'text', text: extracted.text });
+      parts.push(...extracted.attachments);
+      if (parts.length > 0) {
+        acc.messages.push({
+          messageId: `codex-${acc.messages.length}`,
+          role: 'user',
+          createdAt,
+          parts,
+        });
+      }
+    } else if (row.payload.type === 'agent_message' && row.payload.message) {
+      acc.messages.push({
+        messageId: `codex-${acc.messages.length}`,
+        role: 'assistant',
+        createdAt,
+        parts: [{ type: 'text', text: String(row.payload.message) }],
+      });
+    }
+  }
+}
 
 /**
  * 构建 sessionId -> rollout 文件路径映射。
@@ -114,109 +220,105 @@ export function scanCodexSessions(options = {}) {
 }
 
 /**
- * 读取指定 Codex 会话的标准化消息列表。
+ * 读取指定 Codex 会话的标准化消息列表（带文件增量读取缓存）。
  *
  * @param {string} rawId
  * @param {{ rootDir?: string }} [options]
- * @returns {{ messages: Array<object>, model: string | null, cwd: string | null }}
+ * @returns {{ messages: Array<object>, model: string | null, cwd: string | null, running: boolean, logPath?: string }}
  */
 export function readCodexMessages(rawId, options = {}) {
-  if (!isSafeSessionId(rawId)) return { messages: [], model: null, cwd: null };
+  if (!isSafeSessionId(rawId)) return { messages: [], model: null, cwd: null, running: false };
   const rootDir = options.rootDir || path.join(os.homedir(), '.codex');
   const rolloutMap = buildRolloutMap(rootDir);
   const filePath = rolloutMap.get(rawId);
   if (!filePath) return { messages: [], model: null, cwd: null, running: false };
 
-  let running = false;
+  let stat;
   try {
-    const stat = fs.statSync(filePath);
-    running = Date.now() - stat.mtimeMs < 12_000;
+    stat = fs.statSync(filePath);
   } catch {
-    // ignore
+    codexTranscriptCache.delete(filePath);
+    return { messages: [], model: null, cwd: null, running: false, logPath: filePath };
+  }
+  const running = Date.now() - stat.mtimeMs < 12_000;
+  const cached = codexTranscriptCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return { messages: cached.messages, model: cached.model, cwd: cached.cwd, running, logPath: filePath };
   }
 
-  const rows = readJsonlSafe(filePath);
-  const messages = [];
-  let model = null;
-  let cwd = null;
-
-  for (const row of rows) {
-    const createdAt = toEpochMs(row.timestamp);
-    if (row.type === 'session_meta' && row.payload) {
-      if (typeof row.payload.cwd === 'string') cwd = row.payload.cwd;
-      if (typeof row.payload.model_provider === 'string') model = row.payload.model_provider;
-      continue;
+  const consumeChunk = (acc, rawChunk) => {
+    const combined = (acc.leftover || '') + rawChunk;
+    const lines = combined.split(/\r?\n/);
+    acc.leftover = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') appendCodexRow(parsed, acc);
+      } catch {
+        // ignore malformed line
+      }
     }
+  };
 
-    if (row.type === 'response_item' && row.payload) {
-      const p = row.payload;
-      if (p.type === 'message' && (p.role === 'user' || p.role === 'assistant')) {
-        const parts = [];
-        for (const item of Array.isArray(p.content) ? p.content : []) {
-          if (!item || typeof item !== 'object') continue;
-          if ((item.type === 'input_text' || item.type === 'output_text' || item.type === 'text') && item.text) {
-            // 跳过开发者系统指令与环境上下文注入块，避免污染聊天正文
-            const text = String(item.text);
-            if (p.role === 'user' && /^<(?:environment_context|permissions instructions|INSTRUCTIONS)>/i.test(text.trim())) {
-              continue;
-            }
-            parts.push({ type: 'text', text });
+  if (cached && stat.size > cached.size) {
+    let fd;
+    try {
+      const deltaBytes = stat.size - cached.size;
+      const buf = Buffer.allocUnsafe(deltaBytes);
+      fd = fs.openSync(filePath, 'r');
+      const readBytes = fs.readSync(fd, buf, 0, deltaBytes, cached.size);
+      consumeChunk(cached, buf.toString('utf8', 0, readBytes));
+      cached.size += readBytes;
+      cached.mtimeMs = stat.mtimeMs;
+      if (cached.leftover.trim()) {
+        try {
+          const parsed = JSON.parse(cached.leftover.trim());
+          if (parsed && typeof parsed === 'object') {
+            appendCodexRow(parsed, cached);
+            cached.leftover = '';
           }
+        } catch {
+          // wait for rest of line
         }
-        if (parts.length > 0) {
-          messages.push({
-            messageId: `codex-${messages.length}`,
-            role: p.role,
-            createdAt,
-            parts,
-          });
-        }
-      } else if (p.type === 'reasoning' && Array.isArray(p.summary)) {
-        const summaryText = p.summary.map((s) => s?.text || '').filter(Boolean).join('\n');
-        if (summaryText) {
-          messages.push({
-            messageId: `codex-${messages.length}`,
-            role: 'assistant',
-            createdAt,
-            parts: [{ type: 'reasoning', text: summaryText }],
-          });
-        }
-      } else if (p.type === 'function_call') {
-        messages.push({
-          messageId: `codex-${messages.length}`,
-          role: 'assistant',
-          createdAt,
-          parts: [
-            {
-              type: 'tool-call',
-              id: String(p.call_id || `codex-call-${messages.length}`),
-              name: String(p.name || 'tool'),
-              arguments: typeof p.arguments === 'string' ? p.arguments : JSON.stringify(p.arguments ?? {}),
-            },
-          ],
-        });
       }
-      continue;
-    }
-
-    if (row.type === 'event_msg' && row.payload && messages.length === 0) {
-      if (row.payload.type === 'user_message' && row.payload.message) {
-        messages.push({
-          messageId: `codex-${messages.length}`,
-          role: 'user',
-          createdAt,
-          parts: [{ type: 'text', text: String(row.payload.message) }],
-        });
-      } else if (row.payload.type === 'agent_message' && row.payload.message) {
-        messages.push({
-          messageId: `codex-${messages.length}`,
-          role: 'assistant',
-          createdAt,
-          parts: [{ type: 'text', text: String(row.payload.message) }],
-        });
+      return { messages: cached.messages, model: cached.model, cwd: cached.cwd, running, logPath: filePath };
+    } catch {
+      // fallback to full read
+    } finally {
+      if (fd !== undefined) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // ignore
+        }
       }
     }
   }
 
-  return { messages, model, cwd, running };
+  const acc = { mtimeMs: stat.mtimeMs, size: stat.size, leftover: '', messages: [], model: null, cwd: null };
+  try {
+    consumeChunk(acc, fs.readFileSync(filePath, 'utf8'));
+    if (acc.leftover.trim()) {
+      try {
+        const parsed = JSON.parse(acc.leftover.trim());
+        if (parsed && typeof parsed === 'object') {
+          appendCodexRow(parsed, acc);
+          acc.leftover = '';
+        }
+      } catch {
+        // ignore partial trailing line
+      }
+    }
+  } catch {
+    return { messages: [], model: null, cwd: null, running, logPath: filePath };
+  }
+  codexTranscriptCache.delete(filePath);
+  codexTranscriptCache.set(filePath, acc);
+  if (codexTranscriptCache.size > MAX_CODEX_CACHE) {
+    const oldest = codexTranscriptCache.keys().next().value;
+    if (oldest) codexTranscriptCache.delete(oldest);
+  }
+  return { messages: acc.messages, model: acc.model, cwd: acc.cwd, running, logPath: filePath };
 }

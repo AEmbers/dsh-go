@@ -6,72 +6,88 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'connection_state.dart';
 import 'sessions_state.dart';
 
+/// 将单条外部 CLI 消息转换为对应的 [ChatItem] 片段（支持增量更新时按消息粒度复用）。
+List<ChatItem> cliMessageToChatItems(
+  WorkbenchCliMessage msg, {
+  required int seq,
+  required bool streaming,
+  String? fallbackModel,
+}) {
+  if (msg.role == MessageRole.user) {
+    final text = msg.parts.whereType<TextPart>().map((p) => p.text).join('\n');
+    final images = [
+      for (final p in msg.parts.whereType<ImagePart>())
+        if (p.attachment.attachmentId.isNotEmpty) p.attachment,
+    ];
+    final files = [
+      for (final p in msg.parts.whereType<FilePart>()) p.attachment,
+      for (final p in msg.parts.whereType<ImagePart>())
+        if (p.attachment.attachmentId.isEmpty)
+          FileAttachment(
+            attachmentId: p.attachment.attachmentId,
+            name: p.attachment.name ?? 'image',
+            bytes: p.attachment.bytes,
+          ),
+    ];
+    if (text.trim().isEmpty && images.isEmpty && files.isEmpty) return const [];
+    return [
+      UserChatItem(
+        seq: seq,
+        time: msg.createdAt,
+        text: text,
+        images: images,
+        files: files,
+      ),
+    ];
+  }
+
+  final items = <ChatItem>[];
+  final text = msg.parts.whereType<TextPart>().map((p) => p.text).join('\n');
+  final reasoning = msg.parts.whereType<ReasoningPart>().map((p) => p.text).join('\n');
+  final tools = msg.parts.whereType<ToolCallPart>().toList(growable: false);
+
+  if (text.trim().isNotEmpty || reasoning.trim().isNotEmpty) {
+    items.add(
+      AssistantChatItem(
+        id: msg.messageId.isNotEmpty ? msg.messageId : 'cli-a-$seq',
+        seq: seq,
+        time: msg.createdAt,
+        text: text,
+        reasoning: reasoning,
+        streaming: streaming,
+        model: msg.model ?? fallbackModel,
+      ),
+    );
+  }
+
+  for (final call in tools) {
+    items.add(
+      ToolChatItem(
+        callId: call.id,
+        name: call.name,
+        arguments: call.arguments,
+        status: streaming ? ToolStatus.running : ToolStatus.succeeded,
+        seq: seq,
+      ),
+    );
+  }
+  return items;
+}
+
 /// 将桥接返回的多 CLI 消息快照折叠为通用 [ChatItem] 列表，直接复用现有聊天渲染层。
 List<ChatItem> cliSnapshotToChatItems(WorkbenchCliChatSnapshot snapshot) {
   final items = <ChatItem>[];
-  var seq = 0;
-  for (final msg in snapshot.messages) {
-    seq += 1;
-    if (msg.role == MessageRole.user) {
-      final text = msg.parts.whereType<TextPart>().map((p) => p.text).join('\n');
-      final images = [
-        for (final p in msg.parts.whereType<ImagePart>())
-          if (p.attachment.attachmentId.isNotEmpty) p.attachment,
-      ];
-      final files = [
-        for (final p in msg.parts.whereType<FilePart>()) p.attachment,
-        for (final p in msg.parts.whereType<ImagePart>())
-          if (p.attachment.attachmentId.isEmpty)
-            FileAttachment(
-              attachmentId: p.attachment.attachmentId,
-              name: p.attachment.name ?? 'image',
-              bytes: p.attachment.bytes,
-            ),
-      ];
-      if (text.trim().isEmpty && images.isEmpty && files.isEmpty) continue;
-      items.add(
-        UserChatItem(
-          seq: seq,
-          time: msg.createdAt,
-          text: text,
-          images: images,
-          files: files,
-        ),
-      );
-      continue;
-    }
-
-    final text = msg.parts.whereType<TextPart>().map((p) => p.text).join('\n');
-    final reasoning = msg.parts.whereType<ReasoningPart>().map((p) => p.text).join('\n');
-    final tools = msg.parts.whereType<ToolCallPart>().toList(growable: false);
-
-    if (text.trim().isNotEmpty || reasoning.trim().isNotEmpty) {
-      items.add(
-        AssistantChatItem(
-          id: msg.messageId.isNotEmpty ? msg.messageId : 'cli-a-$seq',
-          seq: seq,
-          time: msg.createdAt,
-          text: text,
-          reasoning: reasoning,
-          streaming: snapshot.running && identical(msg, snapshot.messages.last),
-          model: msg.model ?? snapshot.model,
-        ),
-      );
-    }
-
-    for (final call in tools) {
-      items.add(
-        ToolChatItem(
-          callId: call.id,
-          name: call.name,
-          arguments: call.arguments,
-          status: snapshot.running && identical(msg, snapshot.messages.last)
-              ? ToolStatus.running
-              : ToolStatus.succeeded,
-          seq: seq,
-        ),
-      );
-    }
+  for (var i = 0; i < snapshot.messages.length; i += 1) {
+    final msg = snapshot.messages[i];
+    final isLast = i == snapshot.messages.length - 1;
+    items.addAll(
+      cliMessageToChatItems(
+        msg,
+        seq: i + 1,
+        streaming: snapshot.running && isLast,
+        fallbackModel: snapshot.model,
+      ),
+    );
   }
   return List.unmodifiable(items);
 }
