@@ -50,6 +50,7 @@ class WorkbenchTabBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final topInset = MediaQuery.paddingOf(context).top;
+    final headerStyle = DshThemeStyle.of(context).headerGlass(Theme.of(context).colorScheme);
     final engines = ref.watch(workbenchAvailableEnginesProvider);
     final activeEngine = ref.watch(activeWorkbenchEngineProvider);
     final sessions = ref.watch(mergedSessionsProvider).asData?.value ?? const <SessionSummary>[];
@@ -63,44 +64,50 @@ class WorkbenchTabBar extends ConsumerWidget {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(12, topInset + topGap, 12, bottomGap),
-      child: SizedBox(
-        key: const ValueKey('workbench-tabs'),
-        height: tabRow,
-        child: Row(
-          children: [
-            _EngineCountBadge(
-              key: const ValueKey('workbench-tab-count'),
-              engines: engines,
-              activeEngine: activeEngine,
-              runningEngines: runningEngines,
-              tooltip: AppLocale.isEnglish ? 'Switch agent' : '切换智能体',
-              onSelect: (engine) => ref.read(activeWorkbenchEngineProvider.notifier).selectEngine(engine),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  for (final engine in engines)
-                    _EngineTabChip(
-                      key: ValueKey('workbench-engine-tab-${engine.wire}'),
-                      runningKey: ValueKey('workbench-engine-running-${engine.wire}'),
-                      engine: engine,
-                      selected: engine == activeEngine,
-                      running: runningEngines.contains(engine),
-                      onTap: () => ref.read(activeWorkbenchEngineProvider.notifier).selectEngine(engine),
-                    ),
-                ],
+      child: BackdropGroup(
+        child: SizedBox(
+          key: const ValueKey('workbench-tabs'),
+          height: tabRow,
+          child: Row(
+            children: [
+              _EngineCountBadge(
+                key: const ValueKey('workbench-tab-count'),
+                engines: engines,
+                activeEngine: activeEngine,
+                runningEngines: runningEngines,
+                headerStyle: headerStyle,
+                tooltip: AppLocale.isEnglish ? 'Switch agent' : '切换智能体',
+                onSelect: (engine) => ref.read(activeWorkbenchEngineProvider.notifier).selectEngine(engine),
               ),
-            ),
-            const SizedBox(width: 4),
-            _IconKey(
-              key: const ValueKey('workbench-new-chat'),
-              icon: AppIcons.add,
-              tooltip: newChatTooltip,
-              onPressed: () => ref.read(activeWorkbenchEngineProvider.notifier).newChat(),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Expanded(
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  children: [
+                    for (final engine in engines)
+                      _EngineTabChip(
+                        key: ValueKey('workbench-engine-tab-${engine.wire}'),
+                        runningKey: ValueKey('workbench-engine-running-${engine.wire}'),
+                        engine: engine,
+                        selected: engine == activeEngine,
+                        running: runningEngines.contains(engine),
+                        headerStyle: headerStyle,
+                        onTap: () => ref.read(activeWorkbenchEngineProvider.notifier).selectEngine(engine),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              _IconKey(
+                key: const ValueKey('workbench-new-chat'),
+                icon: AppIcons.add,
+                headerStyle: headerStyle,
+                tooltip: newChatTooltip,
+                onPressed: () => ref.read(activeWorkbenchEngineProvider.notifier).newChat(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -150,6 +157,7 @@ class _EngineCountBadge extends StatelessWidget {
     required this.engines,
     required this.activeEngine,
     required this.runningEngines,
+    required this.headerStyle,
     required this.tooltip,
     required this.onSelect,
   });
@@ -157,6 +165,7 @@ class _EngineCountBadge extends StatelessWidget {
   final List<CliEngine> engines;
   final CliEngine activeEngine;
   final Set<CliEngine> runningEngines;
+  final GlassStyle? headerStyle;
   final String tooltip;
   final ValueChanged<CliEngine> onSelect;
 
@@ -164,18 +173,19 @@ class _EngineCountBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final badge = Container(
-      width: 28,
-      height: 28,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: scheme.surface.withValues(alpha: 0.7),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
-      ),
-      child: Text(
-        '${engines.length}',
-        style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurface),
+    final badge = SizedBox.square(
+      dimension: 34,
+      child: GlassSurface(
+        tier: GlassTier.chrome,
+        style: headerStyle,
+        circle: true,
+        grouped: true,
+        child: Center(
+          child: Text(
+            '${engines.length}',
+            style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600, color: scheme.onSurface),
+          ),
+        ),
       ),
     );
     return PopupMenuButton<CliEngine>(
@@ -222,6 +232,7 @@ class _EngineTabChip extends StatelessWidget {
     required this.engine,
     required this.selected,
     required this.running,
+    required this.headerStyle,
     required this.onTap,
     this.runningKey,
   });
@@ -229,6 +240,7 @@ class _EngineTabChip extends StatelessWidget {
   final CliEngine engine;
   final bool selected;
   final bool running;
+  final GlassStyle? headerStyle;
   final VoidCallback onTap;
   final Key? runningKey;
 
@@ -236,22 +248,32 @@ class _EngineTabChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final dsh = DshColors.of(context);
-    final background = selected ? scheme.surface : scheme.surface.withValues(alpha: 0.55);
+    final baseGlass = headerStyle ?? DshSurfaces.of(context).chrome;
+    final chipStyle = selected
+        ? headerStyle
+        : baseGlass.copyWith(
+            fill: baseGlass.fill.withValues(alpha: baseGlass.fill.a * 0.52),
+            fallbackFill: baseGlass.fallbackFill.withValues(alpha: baseGlass.fallbackFill.a * 0.65),
+            hairline: baseGlass.hairline.withValues(alpha: baseGlass.hairline.a * 0.55),
+            rim: Colors.transparent,
+            shadows: const [],
+          );
     final foreground = selected ? scheme.onSurface : scheme.onSurfaceVariant;
     return Padding(
-      padding: const EdgeInsets.only(right: 6, top: 2, bottom: 2),
-      child: Material(
-        color: background,
-        elevation: selected ? 0.8 : 0,
-        shadowColor: Colors.black26,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 180),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.only(right: 6, top: 3, bottom: 3),
+      child: GlassSurface(
+        tier: GlassTier.chrome,
+        style: chipStyle,
+        stadium: true,
+        grouped: true,
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 34, maxWidth: 180),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Center(
+              widthFactor: 1,
+              heightFactor: 1,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -266,7 +288,11 @@ class _EngineTabChip extends StatelessWidget {
                       engine.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(color: foreground, fontSize: 13),
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: foreground,
+                        fontSize: 13,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                      ),
                     ),
                   ),
                   if (running) ...[
@@ -284,20 +310,35 @@ class _EngineTabChip extends StatelessWidget {
 }
 
 class _IconKey extends StatelessWidget {
-  const _IconKey({super.key, required this.icon, required this.tooltip, required this.onPressed});
+  const _IconKey({
+    super.key,
+    required this.icon,
+    required this.headerStyle,
+    required this.tooltip,
+    required this.onPressed,
+  });
 
   final IconData icon;
+  final GlassStyle? headerStyle;
   final String tooltip;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      icon: Icon(icon, size: 20),
-      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-      padding: EdgeInsets.zero,
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox.square(
+      dimension: 34,
+      child: GlassSurface(
+        tier: GlassTier.chrome,
+        style: headerStyle,
+        circle: true,
+        grouped: true,
+        onTap: onPressed,
+        child: Tooltip(
+          message: tooltip,
+          child: Center(child: Icon(icon, size: 18, color: scheme.onSurface)),
+        ),
+      ),
     );
   }
 }

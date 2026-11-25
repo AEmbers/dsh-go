@@ -10,6 +10,7 @@ import '../l10n/l10n.dart';
 import '../usage/usage_stats.dart';
 import 'attachments.dart';
 import 'chat_error_text.dart';
+import 'cli_model_prefs_state.dart';
 import 'connection_state.dart';
 import 'hosts_state.dart';
 import 'models_state.dart';
@@ -639,6 +640,13 @@ class ChatController extends Notifier<ChatState> {
     // error. What was loaded stays until a new snapshot replaces it.
     final cliRef = CliSessionRef.parse(sessionId);
     if (cliRef != null) {
+      final prefs = ref.read(cliModelPrefsProvider);
+      if (prefs.forSession(sessionId) case final saved?) {
+        _cliModel = saved;
+        _cliModelPinned = true;
+      } else {
+        _cliModel ??= prefs.forEngine(cliRef.engine);
+      }
       if (client == null) {
         return ChatState(items: _cliItems, running: false, loading: false, model: _cliModel);
       }
@@ -781,15 +789,23 @@ class ChatController extends Notifier<ChatState> {
     _cliPollTimer?.cancel();
     _cliPollTimer = null;
     try {
+      await ref.read(cliModelPrefsProvider.notifier).ensureLoaded();
+      if (!ref.mounted || !identical(client, _client)) return false;
       final snap = await client.readWorkbenchBridgeMessages(cliRef.engine, cliRef.rawId);
       if (!ref.mounted || !identical(client, _client)) return false;
       final nextItems = cliSnapshotToChatItems(snap);
       _cliCwd = snap.cwd ?? _cliCwd;
       _cliRunning = snap.running;
+      final prefs = ref.read(cliModelPrefsProvider);
       if (!_cliModelPinned) {
-        if (snap.model case final modelName? when modelName.isNotEmpty) {
+        if (prefs.forSession(sessionId) case final saved?) {
+          _cliModel = saved;
+          _cliModelPinned = true;
+        } else if (snap.model case final modelName? when modelName.isNotEmpty) {
           final catalog = ref.read(workbenchBridgeModelsProvider(cliRef.engine)).value;
           _cliModel = resolveCliModelSelection(catalog, modelName, cliRef.engine);
+        } else {
+          _cliModel ??= prefs.forEngine(cliRef.engine);
         }
       }
       final prevSig = _cliSnapshotSignature(_cliItems, state.running, state.model);
@@ -810,6 +826,7 @@ class ChatController extends Notifier<ChatState> {
           unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
           if (ref.read(currentSessionProvider) == sessionId) {
             if (_cliModel case final pinned?) {
+              unawaited(ref.read(cliModelPrefsProvider.notifier).migrateSessionModel(sessionId, resolved, cliRef.engine));
               unawaited(ref.read(chatProvider(resolved).notifier).setModel(pinned));
             }
             ref.read(currentSessionProvider.notifier).select(resolved);
@@ -909,6 +926,7 @@ class ChatController extends Notifier<ChatState> {
           model: _cliModel,
         );
         if (_cliModel case final selectedModel?) {
+          unawaited(ref.read(cliModelPrefsProvider.notifier).saveSessionModel(result.sessionId, cliRef.engine, selectedModel));
           unawaited(ref.read(chatProvider(result.sessionId).notifier).setModel(selectedModel));
         }
         unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
@@ -2241,9 +2259,11 @@ class ChatController extends Notifier<ChatState> {
     if (!owner.mounted) return false;
     final cliRef = CliSessionRef.parse(sessionId);
     if (cliRef != null) {
-      _cliModel = selection;
+      final normalized = normalizeCliModelSelection(cliRef.engine, selection);
+      _cliModel = normalized;
       _cliModelPinned = true;
-      state = state.copyWith(model: selection, error: null);
+      state = state.copyWith(model: normalized, error: null);
+      unawaited(ref.read(cliModelPrefsProvider.notifier).saveSessionModel(sessionId, cliRef.engine, normalized));
       return true;
     }
     final client = _client;

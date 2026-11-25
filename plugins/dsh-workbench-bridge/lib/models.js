@@ -203,6 +203,10 @@ export function resolveAntigravityWireModel(model, effort) {
   if (alreadySuffixed) {
     return { model: cleanModel, effort: null };
   }
+  // Antigravity CLI 的 Orchestrator 模型使用固定思考预算，传 --effort 会直接报错。
+  if (cleanModel.toLowerCase().includes('orchestrator')) {
+    return { model: cleanModel, effort: null };
+  }
   if (cleanEffort) {
     const candidate = `${cleanModel}-${cleanEffort}`;
     if (knownAntigravityWireIds.has(candidate) || !cleanModel.includes('orchestrator')) {

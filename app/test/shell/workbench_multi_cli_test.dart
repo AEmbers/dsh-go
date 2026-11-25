@@ -5,14 +5,18 @@
 
 import 'package:dsh_app/state/adaptive_layout_state.dart';
 import 'package:dsh_app/state/chat_state.dart';
+import 'package:dsh_app/state/cli_model_prefs_state.dart';
 import 'package:dsh_app/state/terminal_state.dart';
 import 'package:dsh_app/state/workbench_bridge_state.dart';
 import 'package:dsh_app/state/workspaces_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/model_sheet.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
+import 'package:dsh_app/ui/shell/workbench/workbench_chrome.dart';
+import 'package:dsh_app/ui/theme/glass.dart';
 import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -253,5 +257,128 @@ void main() {
     expect(sessionMatchesWorkspacePath('D:/dev/workspace2', 'D:/dev/workspace'), isFalse);
     expect(sessionMatchesWorkspacePath('/home/user/repo', '/home/user/repo'), isTrue);
     expect(sessionMatchesWorkspacePath(null, 'D:/dev/workspace'), isFalse);
+  });
+
+  test('CliModelPrefsController persists engine defaults and session pins and strips orchestrator effort', () async {
+    final c1 = ProviderContainer();
+    addTearDown(c1.dispose);
+    final n1 = c1.read(cliModelPrefsProvider.notifier);
+    await n1.ensureLoaded();
+
+    await n1.saveEngineDefault(
+      CliEngine.antigravity,
+      const ModelSelection(provider: 'orchestrator', model: 'gemini-pro-orchestrator-neon', reasoningEffort: 'high'),
+    );
+    await n1.saveSessionModel(
+      'cli:codex:cx-1',
+      CliEngine.codex,
+      const ModelSelection(provider: 'codex', model: 'gpt-6.2-sol', reasoningEffort: 'xhigh'),
+    );
+
+    final c2 = ProviderContainer();
+    addTearDown(c2.dispose);
+    final n2 = c2.read(cliModelPrefsProvider.notifier);
+    await n2.ensureLoaded();
+    final restored = c2.read(cliModelPrefsProvider);
+
+    expect(restored.loaded, isTrue);
+    expect(restored.forEngine(CliEngine.antigravity)?.model, 'gemini-pro-orchestrator-neon');
+    expect(restored.forEngine(CliEngine.antigravity)?.reasoningEffort, isNull);
+    expect(restored.forSession('cli:codex:cx-1')?.model, 'gpt-6.2-sol');
+    expect(restored.forSession('cli:codex:cx-1')?.reasoningEffort, 'xhigh');
+    expect(restored.forEngine(CliEngine.codex)?.model, 'gpt-6.2-sol');
+  });
+
+  testWidgets('Antigravity Orchestrator shows fixed effort note in model sheet', (tester) async {
+    useWindow(tester, const Size(1280, 800));
+    mockClipboard(tester);
+    final extSessions = [
+      _cliSession(engine: CliEngine.antigravity, rawId: 'agy-1', title: 'Larch-4N', running: false),
+    ];
+    const agyCatalog = ModelCatalog(
+      defaultSelection: ModelSelection(provider: 'gemini', model: 'gemini-4-neon', reasoningEffort: 'high'),
+      routableProviders: ['gemini', 'orchestrator'],
+      groups: [
+        ProviderGroup('gemini', 'Gemini', [
+          ModelInfo(
+            provider: 'gemini',
+            id: 'gemini-4-neon',
+            name: 'Gemini 4 Neon',
+            efforts: [ReasoningEffort('low', 'Low', null), ReasoningEffort('high', 'High', null)],
+            defaultEffort: 'high',
+          ),
+        ]),
+        ProviderGroup('orchestrator', 'Orchestrator', [
+          ModelInfo(
+            provider: 'orchestrator',
+            id: 'gemini-pro-orchestrator-neon',
+            name: 'Orchestrator (Neon)',
+            efforts: [],
+          ),
+        ]),
+      ],
+      failures: [],
+    );
+
+    await tester.pumpWidget(
+      testApp(
+        HomeShell(chatBuilder: (openDrawer) => ChatScreen(onOpenDrawer: openDrawer, backdrop: false)),
+        overrides: [
+          ...homeOverrides(
+            session: 'cli:antigravity:agy-1',
+            prefs: const LayoutPrefs(loaded: true, panelOpen: false),
+            chat: (id) => const ChatState(loading: false, items: []),
+          ),
+          workbenchBridgeSessionsProvider.overrideWith(() => _FakeBridgeSessions(extSessions)),
+          workbenchBridgeModelsProvider(CliEngine.antigravity).overrideWith((ref) async => agyCatalog),
+          terminalBackendProvider.overrideWith((ref, id) => FakeTerminalBackend(supported: false)),
+        ],
+      ),
+    );
+    await pumpFrames(tester, 4);
+
+    await tester.tap(find.byType(ModelChip));
+    await pumpFrames(tester, 4);
+
+    await tester.tap(find.text('Orchestrator'));
+    await pumpFrames(tester, 4);
+    await tester.tap(find.text('Orchestrator (Neon)'));
+    await pumpFrames(tester, 4);
+
+    expect(find.byKey(const ValueKey('orchestrator-effort-note')), findsOneWidget);
+  });
+
+  testWidgets('workbench header fuses with theme glass without hardcoded blue-grey slab', (tester) async {
+    useWindow(tester, const Size(1280, 800));
+    mockClipboard(tester);
+    final extSessions = [
+      _cliSession(engine: CliEngine.antigravity, rawId: 'agy-1', title: 'Larch-4N', running: false),
+    ];
+
+    await tester.pumpWidget(
+      testApp(
+        HomeShell(chatBuilder: (openDrawer) => ChatScreen(onOpenDrawer: openDrawer, backdrop: false)),
+        overrides: [
+          ...homeOverrides(
+            session: 'cli:antigravity:agy-1',
+            prefs: const LayoutPrefs(loaded: true, panelOpen: false),
+            chat: (id) => const ChatState(loading: false, items: []),
+          ),
+          workbenchBridgeSessionsProvider.overrideWith(() => _FakeBridgeSessions(extSessions)),
+          terminalBackendProvider.overrideWith((ref, id) => FakeTerminalBackend(supported: false)),
+        ],
+      ),
+    );
+    await pumpFrames(tester, 4);
+
+    final tabBar = find.byType(WorkbenchTabBar);
+    expect(tabBar, findsOneWidget);
+    // 左圆标、DSH 与 Antigravity 两个智能体胶囊、右 + 按钮，共 4 个 GlassSurface。
+    expect(find.descendant(of: tabBar, matching: find.byType(GlassSurface)), findsNWidgets(4));
+
+    final hardcodedBoxes = tester.widgetList<ColoredBox>(find.byType(ColoredBox)).where(
+      (b) => b.color == const Color(0xFFE7EEF5),
+    );
+    expect(hardcodedBoxes, isEmpty);
   });
 }

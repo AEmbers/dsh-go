@@ -33,6 +33,7 @@ import '../../state/attachments.dart';
 import '../../state/balance_state.dart';
 import '../../state/chat_error_text.dart';
 import '../../state/chat_state.dart';
+import '../../state/cli_model_prefs_state.dart';
 import '../../state/commands_state.dart';
 import '../../state/compose_inbox.dart';
 import '../../state/composer_insert.dart';
@@ -782,7 +783,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     // 外部智能体新对话：直接在当前激活的外部 CLI 引擎下创建会话并跳转至实时对话页
     if (ref.read(currentSessionProvider) == null && ref.read(activeWorkbenchEngineProvider) != CliEngine.dsh) {
       final activeEngine = ref.read(activeWorkbenchEngineProvider);
-      final pendingModel = ref.read(pendingModelProvider);
+      final rawSelected = ref.read(pendingModelProvider) ?? ref.read(cliModelPrefsProvider).forEngine(activeEngine);
+      final selectedModel = rawSelected == null ? null : normalizeCliModelSelection(activeEngine, rawSelected);
       final workspace = ref.read(selectedWorkspaceProvider) ?? ref.read(recentWorkspaceForNewChatProvider);
       final cwd = workspace?.path;
       setState(() => _drafts = const []);
@@ -805,15 +807,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
           rawSessionId: null,
           cwd: cwd,
           prompt: text,
-          model: pendingModel?.model,
-          reasoningEffort: pendingModel?.reasoningEffort,
+          model: selectedModel?.model,
+          reasoningEffort: selectedModel?.reasoningEffort,
           attachmentIds: uploadedIds,
         );
         if (!ownsDraft()) return;
         ref.read(pendingModelProvider.notifier).select(null);
         unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
-        if (pendingModel != null) {
-          unawaited(ref.read(chatProvider(created.sessionId).notifier).setModel(pendingModel));
+        if (selectedModel != null) {
+          unawaited(ref.read(cliModelPrefsProvider.notifier).saveSessionModel(created.sessionId, activeEngine, selectedModel));
+          unawaited(ref.read(chatProvider(created.sessionId).notifier).setModel(selectedModel));
         }
         ref.read(currentSessionProvider.notifier).select(created.sessionId);
       } catch (error) {
@@ -1641,11 +1644,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
 
   Future<void> _showModelSheet() {
     final sessionId = ref.read(currentSessionProvider);
-    final selection = sessionId == null ? ref.read(pendingModelProvider) : ref.read(chatProvider(sessionId)).model;
+    final engine = sessionId == null
+        ? ref.read(activeWorkbenchEngineProvider)
+        : (CliSessionRef.parse(sessionId)?.engine ?? CliEngine.dsh);
+    final external = engine != CliEngine.dsh;
+    final selection = sessionId == null
+        ? (external
+              ? (ref.read(pendingModelProvider) ?? ref.read(cliModelPrefsProvider).forEngine(engine))
+              : ref.read(pendingModelProvider))
+        : ref.read(chatProvider(sessionId)).model;
+    final fallbackDefault = external
+        ? ref.read(workbenchBridgeModelsProvider(engine)).value?.defaultSelection
+        : ref.read(currentModelCatalogProvider)?.defaultSelection;
     return showModelSheet(
       context,
-      current: selection ?? ref.read(currentModelCatalogProvider)?.defaultSelection,
+      current: selection ?? fallbackDefault,
       onSelected: _modelTarget(),
+      cliEngine: engine,
     );
   }
 
@@ -1666,6 +1681,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
     final client = ref.read(activeConnectionProvider).value?.client;
     final generation = client?.mux.generation;
     final sessionId = ref.read(currentSessionProvider);
+    final engine = sessionId == null
+        ? ref.read(activeWorkbenchEngineProvider)
+        : (CliSessionRef.parse(sessionId)?.engine ?? CliEngine.dsh);
     return (selection) {
       if (!mounted ||
           client == null ||
@@ -1677,7 +1695,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
         return;
       }
       if (sessionId == null) {
-        ref.read(pendingModelProvider.notifier).select(selection);
+        if (engine != CliEngine.dsh) {
+          final normalized = normalizeCliModelSelection(engine, selection);
+          ref.read(pendingModelProvider.notifier).select(normalized);
+          unawaited(ref.read(cliModelPrefsProvider.notifier).saveEngineDefault(engine, normalized));
+        } else {
+          ref.read(pendingModelProvider.notifier).select(selection);
+        }
       } else {
         // A newer pick replaces a model still owed from the new-chat screen.
         ref.read(owedSetupsProvider.notifier).dropModel(ref.read(activeHostProvider), sessionId);
@@ -1773,6 +1797,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
         ? (listedSession?.cliEngine ?? CliSessionRef.parse(sessionId)?.engine ?? CliEngine.dsh)
         : activeWorkbenchEngine;
     final pendingModel = ref.watch(pendingModelProvider);
+    final cliModelPrefs = ref.watch(cliModelPrefsProvider);
+    final effectivePendingModel = currentEngine == CliEngine.dsh
+        ? pendingModel
+        : (pendingModel ?? cliModelPrefs.forEngine(currentEngine));
     final newFolder = sessionId == null
         ? ref.watch(drawerViewProvider).byId(ref.watch(pendingSessionFolderProvider))
         : null;
@@ -2093,41 +2121,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                     child: _HeaderAside(
                       aside: typing,
                       child: workbench
-                          ? ColoredBox(
-                              color: _workbenchBarColor(Theme.of(context)),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const WorkbenchTabBar(),
-                                  ChatHeader(
-                                    includeTopPadding: false,
-                                    scrolledUnder: sessionId == null ? null : _scrolledUnder,
-                                    leading: CliEngineIcon(engine: currentEngine, size: 18),
-                                    title: title,
-                                    status: status,
-                                    detail: _workbenchDetail(
-                                      statusLabel: status.label,
-                                      host: currentEngine != CliEngine.dsh ? currentEngine.label : conn?.label,
-                                      workspace: folderLabel(listedSession?.cwd),
+                          ? Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  top: 0,
+                                  child: sessionId == null
+                                      ? const SizedBox.shrink()
+                                      : ValueListenableBuilder<double>(
+                                          valueListenable: _scrolledUnder,
+                                          builder: (context, t, child) => Opacity(opacity: t, child: child),
+                                          child: TopFade(
+                                            height: WorkbenchChrome.extentOf(context) + ChatHeader.barHeightOf(context) + 12,
+                                          ),
+                                        ),
+                                ),
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const WorkbenchTabBar(),
+                                    ChatHeader(
+                                      includeTopPadding: false,
+                                      scrolledUnder: null,
+                                      leading: CliEngineIcon(engine: currentEngine, size: 18),
+                                      title: title,
+                                      status: status,
+                                      detail: _workbenchDetail(
+                                        statusLabel: status.label,
+                                        host: currentEngine != CliEngine.dsh ? currentEngine.label : conn?.label,
+                                        workspace: folderLabel(listedSession?.cwd),
+                                      ),
+                                      onOpenDrawer: widget.onOpenDrawer,
+                                      // 新对话 sits on the tab row, beside the tabs.
+                                      onNewChat: null,
+                                      onCall: null,
+                                      onRefresh: () => unawaited(refreshWorkbench(ref)),
+                                      onTitleTap: sessionId == null
+                                          ? null
+                                          : () => SessionDetailPage.open(context, sessionId, toggle: true),
+                                      trailing: ModelChip(
+                                        selection: sessionId == null ? effectivePendingModel : chat?.model,
+                                        onSelected: _modelTarget(),
+                                        grouped: true,
+                                        cliEngine: currentEngine,
+                                      ),
                                     ),
-                                    onOpenDrawer: widget.onOpenDrawer,
-                                    // 新对话 sits on the tab row, beside the tabs.
-                                    onNewChat: null,
-                                    onCall: null,
-                                    onRefresh: () => unawaited(refreshWorkbench(ref)),
-                                    onTitleTap: sessionId == null
-                                        ? null
-                                        : () => SessionDetailPage.open(context, sessionId, toggle: true),
-                                    trailing: ModelChip(
-                                      selection: sessionId == null ? pendingModel : chat?.model,
-                                      onSelected: _modelTarget(),
-                                      grouped: true,
-                                      cliEngine: currentEngine,
-                                    ),
-                                  ),
-                                  const WorkbenchModeBar(),
-                                ],
-                              ),
+                                    const WorkbenchModeBar(),
+                                  ],
+                                ),
+                              ],
                             )
                           : ChatHeader(
                               scrolledUnder: sessionId == null ? null : _scrolledUnder,
@@ -2464,7 +2508,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                                       keyboardInset: MediaQuery.viewInsetsOf(context).bottom,
                                       footer: _composerOpens(context) && !isChild
                                           ? ComposerModelPill(
-                                              selection: sessionId == null ? pendingModel : chat?.model,
+                                              selection: sessionId == null ? effectivePendingModel : chat?.model,
                                               onSelected: _modelTarget(),
                                               cliEngine: currentEngine,
                                             )
@@ -2731,12 +2775,6 @@ String? _workbenchDetail({required String statusLabel, String? host, String? wor
   ];
   if (parts.isEmpty) return null;
   return parts.join(' · ');
-}
-
-Color _workbenchBarColor(ThemeData theme) {
-  final scheme = theme.colorScheme;
-  final base = theme.brightness == Brightness.light ? const Color(0xFFE7EEF5) : scheme.surface;
-  return Color.alphaBlend(scheme.primary.withValues(alpha: 0.06), base);
 }
 
 /// Drops [child] out of layout. Building it and not mounting it keeps the

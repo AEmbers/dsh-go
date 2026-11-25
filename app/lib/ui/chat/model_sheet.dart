@@ -619,6 +619,11 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
     final shownId = _channel ?? selected?.provider;
     final shown = groups.firstWhere((g) => g.id == shownId, orElse: () => groups.first);
     final efforts = selected?.efforts ?? const <ReasoningEffort>[];
+    final isAntigravityOrchestrator =
+        _isExternalCli &&
+        widget.cliEngine == CliEngine.antigravity &&
+        selected != null &&
+        (selected.provider == 'orchestrator' || selected.id.toLowerCase().contains('orchestrator'));
     final quick = AppMotion.of(context, AppMotion.quick);
     const inset = SheetTitleBar.inset;
 
@@ -665,7 +670,9 @@ class _ModelSheetState extends ConsumerState<_ModelSheet> {
             layoutBuilder: (current, previous) =>
                 Stack(alignment: Alignment.topCenter, children: [...previous, ?current]),
             child: efforts.length < 2
-                ? const SizedBox(key: ValueKey('none'), width: double.infinity)
+                ? (isAntigravityOrchestrator
+                      ? _OrchestratorEffortNote(key: const ValueKey('orchestrator-effort-note'), inset: inset)
+                      : const SizedBox(key: ValueKey('none'), width: double.infinity))
                 : Column(
                     key: const ValueKey('effort'),
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1048,6 +1055,45 @@ class _CheckMark extends StatelessWidget {
 
 /// Room around an empty / failed catalog inside the sheet.
 const _emptyPadding = EdgeInsets.fromLTRB(32, 16, 32, 8);
+
+/// Antigravity 编排模式（Orchestrator）在 CLI 侧使用固定思考预算，提示用户为何不显示深度滑块。
+class _OrchestratorEffortNote extends StatelessWidget {
+  const _OrchestratorEffortNote({super.key, required this.inset});
+
+  final double inset;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final text = AppLocale.isEnglish
+        ? 'Orchestrator uses a fixed reasoning budget in Antigravity CLI and cannot adjust planner effort separately. Pick a standalone model (e.g. Gemini 4 Neon) to customize thinking effort.'
+        : '编排模式由 Antigravity CLI 固定控制编排者与执行者的思考深度，CLI 暂不支持单独调整；如需自定义思考深度，请直接选择对应单模型（如 Gemini 4 Neon）。';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 16),
+        SheetSectionLabel(appL10n.viewModelEffort),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: inset),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerHighest.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.5)),
+            ),
+            child: Text(
+              text,
+              style: theme.textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant, height: 1.45),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 /// 目录还在路上:一颗安静的小环,高度和一排模型卡差不多,来了不跳。
 class _Loading extends StatelessWidget {

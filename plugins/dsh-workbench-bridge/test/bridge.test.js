@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
-import { parseAntigravityModelsOutput } from '../lib/models.js';
+import { parseAntigravityModelsOutput, resolveAntigravityWireModel } from '../lib/models.js';
 import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
 import { readAntigravityMessages, scanAntigravitySessions } from '../lib/scanners/antigravity.js';
 import { unwrapUserRequest } from '../lib/scanners/common.js';
@@ -492,6 +492,19 @@ test('Antigravity model catalog parser, stream-json parser, and chunked upload w
     catalog.groups[0].models[0].reasoning.efforts.map((e) => e.id),
     ['medium', 'high'],
   );
+
+  assert.deepEqual(resolveAntigravityWireModel('gemini-pro-orchestrator-neon', 'high'), {
+    model: 'gemini-pro-orchestrator-neon',
+    effort: null,
+  });
+  const orchCmd = buildCliCommand('antigravity', {
+    prompt: 'hi',
+    model: 'gemini-pro-orchestrator-neon',
+    reasoningEffort: 'high',
+  });
+  assert.ok(orchCmd.args.includes('--model'));
+  assert.ok(orchCmd.args.includes('gemini-pro-orchestrator-neon'));
+  assert.equal(orchCmd.args.includes('--effort'), false);
 
   const step = parseCliStreamLine(JSON.stringify({
     event: 'step_update',
