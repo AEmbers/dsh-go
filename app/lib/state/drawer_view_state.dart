@@ -607,12 +607,19 @@ final drawerScopeProvider = Provider<DrawerScope?>((ref) {
   final members = workspace?.sessionIds.toSet();
   final archived = registryCurrent && registry.ready ? registry.archivedSessionIds.toSet() : const <String>{};
   final bridge = ref.watch(workbenchBridgeSessionsProvider);
+  final wsPath = workspace?.path;
+  bool bridgeInWorkspace(SessionSummary ext) {
+    if (workspace == null) return true;
+    if (members != null && members.contains(ext.sessionId)) return true;
+    return sessionMatchesWorkspacePath(ext.cwd, wsPath);
+  }
+
   final seenIds = <String>{for (final s in all) s.sessionId};
   final inScope = [
     for (final s in all)
       if (!archived.contains(s.sessionId) && (members == null || members.contains(s.sessionId))) s,
     for (final ext in bridge)
-      if (!archived.contains(ext.sessionId) && seenIds.add(ext.sessionId)) ext,
+      if (!archived.contains(ext.sessionId) && bridgeInWorkspace(ext) && seenIds.add(ext.sessionId)) ext,
   ];
   final botOwned = ref.watch(dsBotOwnedSessionsProvider);
   final result = DrawerScope(

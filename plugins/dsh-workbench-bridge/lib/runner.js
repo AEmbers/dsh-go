@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { resolveAntigravityWireModel } from './models.js';
+import { readAntigravityMessages, scanAntigravitySessions } from './scanners/antigravity.js';
 import { CLI_ENGINES, isSafeSessionId, resolveExecutable } from './scanners/common.js';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -201,6 +202,58 @@ export class CliRunManager {
   }
 
   /**
+   * 为仅存在于 Antigravity IDE 的会话提取标题、工作区与最近多轮对话摘要，供 CLI 侧无感接续。
+   *
+   * @param {string} rawId
+   * @returns {{ contextBlock: string, cwd: string | null, title: string | null }}
+   */
+  _buildIdeHandoffContext(rawId) {
+    let title = null;
+    let cwd = null;
+    try {
+      const summaries = scanAntigravitySessions({ rootDir: this._antigravityIdeRoot, limit: 100 });
+      const hit = summaries.find((s) => s.rawId === rawId);
+      if (hit) {
+        title = hit.title || null;
+        cwd = hit.cwd || null;
+      }
+    } catch {
+      // ignore summary lookup failure
+    }
+
+    let historyLines = [];
+    try {
+      const read = readAntigravityMessages(rawId, { rootDir: this._antigravityIdeRoot });
+      const recent = read.messages.slice(-8);
+      let totalChars = 0;
+      for (const m of recent) {
+        const text = (m.parts || [])
+          .filter((p) => p.type === 'text' && typeof p.text === 'string' && p.text.trim())
+          .map((p) => p.text.trim())
+          .join('\n');
+        if (!text) continue;
+        const snippet = text.length > 600 ? `${text.slice(0, 600)}…` : text;
+        if (totalChars + snippet.length > 5000 && historyLines.length > 0) break;
+        const label = m.role === 'user' ? '用户' : '助手';
+        historyLines.push(`[${label}] ${snippet}`);
+        totalChars += snippet.length;
+      }
+    } catch {
+      // ignore history read failure
+    }
+
+    const header = [
+      '以下是用户此前在 Antigravity IDE 桌面端会话中的历史上下文（移动端当前自动从该 IDE 会话接续对话，请直接基于这些上下文继续回答用户的新问题）：',
+      title ? `会话标题：${title}` : null,
+      cwd ? `工作区目录：${cwd}` : null,
+    ].filter(Boolean);
+
+    const body = historyLines.length > 0 ? historyLines.join('\n\n') : '(无更多文本历史)';
+    const contextBlock = `<HANDOFF_CONTEXT>\n${header.join('\n')}\n\n${body}\n</HANDOFF_CONTEXT>`;
+    return { contextBlock, cwd, title };
+  }
+
+  /**
    * 按 uploadId 获取当前缓存的已上传附件元信息。
    *
    * @param {string} uploadId
@@ -371,11 +424,11 @@ export class CliRunManager {
       ? (this._resolvedIds.get(`${engine}:${rawRequestedId}`) || rawRequestedId)
       : null;
 
+    let handoff = null;
+    let cliSessionArgId = requestedId;
     if (engine === 'antigravity' && requestedId && this._isIdeOnlyAntigravitySession(requestedId)) {
-      throw Object.assign(new Error(IDE_READONLY_MESSAGE), {
-        status: 409,
-        code: 'ide_session_readonly',
-      });
+      handoff = this._buildIdeHandoffContext(requestedId);
+      cliSessionArgId = null;
     }
 
     const displayPrompt = rawPrompt || attachments.map((a) => `[附件: ${a.name}]`).join(' ');
@@ -385,6 +438,9 @@ export class CliRunManager {
       .map((a) => a.path);
 
     let effectivePrompt = rawPrompt || '请查看并分析用户附带的图片或文件。';
+    if (handoff) {
+      effectivePrompt = `${handoff.contextBlock}\n\n${effectivePrompt}`;
+    }
     if (attachments.length > 0) {
       const nonCodexImages = engine === 'codex'
         ? attachments.filter((a) => !imagePaths.includes(a.path))
@@ -396,7 +452,7 @@ export class CliRunManager {
     }
 
     const { binCandidates, args } = buildCliCommand(engine, {
-      rawSessionId: requestedId,
+      rawSessionId: cliSessionArgId,
       prompt: effectivePrompt,
       model: input.model,
       reasoningEffort: input.reasoningEffort,
@@ -411,7 +467,7 @@ export class CliRunManager {
       });
     }
 
-    const rawId = requestedId || `pending-${crypto.randomUUID()}`;
+    const rawId = cliSessionArgId || `pending-${crypto.randomUUID()}`;
     const key = `${engine}:${rawId}`;
     const existing = this._runs.get(key);
     if (existing?.running) {
@@ -422,7 +478,9 @@ export class CliRunManager {
     }
 
     const runId = crypto.randomUUID();
-    const cwd = input.cwd && fs.existsSync(input.cwd) ? input.cwd : os.homedir();
+    const resolvedInputCwd = input.cwd && fs.existsSync(input.cwd) ? input.cwd : null;
+    const resolvedHandoffCwd = handoff?.cwd && fs.existsSync(handoff.cwd) ? handoff.cwd : null;
+    const cwd = resolvedInputCwd || resolvedHandoffCwd || os.homedir();
     const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(exe);
     const child = this._spawn(exe, args, {
       cwd,
@@ -435,7 +493,7 @@ export class CliRunManager {
       runId,
       engine,
       rawId,
-      resolvedRawId: requestedId,
+      resolvedRawId: cliSessionArgId,
       sessionId: `cli:${engine}:${rawId}`,
       cwd,
       prompt: displayPrompt,
@@ -520,6 +578,7 @@ export class CliRunManager {
       rawId: state.rawId,
       runId: state.runId,
       running: true,
+      ...(handoff ? { handedOffFrom: requestedId } : {}),
     };
   }
 

@@ -855,6 +855,7 @@ class ChatController extends Notifier<ChatState> {
     final displayText = trimmed.isNotEmpty
         ? trimmed
         : attachments.map((a) => '[附件: ${a.name}]').join(' ');
+    final previousItems = _cliItems;
     final optimistic = [
       ..._cliItems,
       UserChatItem(
@@ -887,7 +888,7 @@ class ChatController extends Notifier<ChatState> {
         if (!ref.mounted || !identical(client, _client)) return false;
         uploadedIds.add(uploaded.uploadId);
       }
-      await client.sendWorkbenchBridgePrompt(
+      final result = await client.sendWorkbenchBridgePrompt(
         engine: cliRef.engine,
         rawSessionId: cliRef.rawId,
         cwd: _cliCwd,
@@ -897,11 +898,29 @@ class ChatController extends Notifier<ChatState> {
         attachmentIds: uploadedIds,
       );
       if (!ref.mounted || !identical(client, _client)) return false;
+      if (result.sessionId.isNotEmpty && result.sessionId != cliRef.sessionId) {
+        _cliItems = previousItems;
+        _cliRunning = false;
+        state = ChatState(
+          items: _cliItems,
+          running: false,
+          loading: false,
+          connection: client.mux.state,
+          model: _cliModel,
+        );
+        if (_cliModel case final selectedModel?) {
+          unawaited(ref.read(chatProvider(result.sessionId).notifier).setModel(selectedModel));
+        }
+        unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
+        ref.read(currentSessionProvider.notifier).select(result.sessionId);
+        return true;
+      }
       unawaited(_syncCliSession(client, cliRef));
       unawaited(ref.read(workbenchBridgeSessionsProvider.notifier).refresh());
       return true;
     } catch (error) {
       if (!ref.mounted || !identical(client, _client)) return false;
+      _cliItems = previousItems;
       _cliRunning = false;
       final message = error is DshRemoteException && error.message.isNotEmpty
           ? error.message

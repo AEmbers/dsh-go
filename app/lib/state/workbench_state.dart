@@ -11,6 +11,7 @@ import 'hosts_state.dart';
 import 'models_state.dart';
 import 'sessions_state.dart';
 import 'workbench_bridge_state.dart';
+import 'workspaces_state.dart';
 
 /// What the wide conversation column is showing.
 enum WorkbenchSurface { chat, cli }
@@ -86,7 +87,17 @@ class ActiveWorkbenchEngineController extends Notifier<CliEngine> {
         currentId != null && (CliSessionRef.parse(currentId)?.engine ?? CliEngine.dsh) == target;
     if (currentMatches) return;
 
-    final rows = ref.read(mergedSessionsProvider).asData?.value ?? const <SessionSummary>[];
+    final ws = ref.read(selectedWorkspaceProvider);
+    final allRows = ref.read(mergedSessionsProvider).asData?.value ?? const <SessionSummary>[];
+    final rows = ws == null
+        ? allRows
+        : [
+            for (final s in allRows)
+              if (s.cliEngine == CliEngine.dsh
+                  ? ws.sessionIds.contains(s.sessionId)
+                  : (ws.sessionIds.contains(s.sessionId) || sessionMatchesWorkspacePath(s.cwd, ws.path)))
+                s,
+          ];
     final byId = {for (final row in rows) row.sessionId: row};
     final remembered = _lastSessionByEngine[target];
     if (remembered != null && byId.containsKey(remembered)) {

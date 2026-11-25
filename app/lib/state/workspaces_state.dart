@@ -432,6 +432,32 @@ final selectedWorkspaceProvider = Provider<Workspace?>((ref) {
 /// Id of [selectedWorkspaceProvider], for `session/create`.
 final selectedWorkspaceIdProvider = Provider<String?>((ref) => ref.watch(selectedWorkspaceProvider)?.workspaceId);
 
+/// 判断外部智能体会话的 `cwd` 是否属于指定工作区目录（兼容 Windows 大小写、正反斜杠与子目录）。
+bool sessionMatchesWorkspacePath(String? sessionCwd, String? workspacePath) {
+  final rawCwd = sessionCwd?.trim() ?? '';
+  final rawWs = workspacePath?.trim() ?? '';
+  if (rawCwd.isEmpty || rawWs.isEmpty) return false;
+
+  String normalize(String p) {
+    var s = p.replaceAll('\\', '/');
+    while (s.length > 1 && s.endsWith('/') && !RegExp(r'^[A-Za-z]:/$').hasMatch(s)) {
+      s = s.substring(0, s.length - 1);
+    }
+    if (RegExp(r'^[A-Za-z]:').hasMatch(s)) {
+      s = s.toLowerCase();
+    }
+    return s;
+  }
+
+  final normCwd = normalize(rawCwd);
+  final normWs = normalize(rawWs);
+  if (normCwd == normWs) return true;
+  if (normWs == '/' || RegExp(r'^[a-z]:/$').hasMatch(normWs)) {
+    return normCwd.startsWith(normWs);
+  }
+  return normCwd.startsWith('$normWs/');
+}
+
 /// Whether the drawer should wait before listing: a workspace is selected but
 /// the host's registry hasn't arrived yet (avoids flashing every conversation).
 final workspaceFilterPendingProvider = Provider<bool>((ref) {

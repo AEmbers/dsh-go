@@ -7,6 +7,7 @@ import 'package:dsh_app/state/adaptive_layout_state.dart';
 import 'package:dsh_app/state/chat_state.dart';
 import 'package:dsh_app/state/terminal_state.dart';
 import 'package:dsh_app/state/workbench_bridge_state.dart';
+import 'package:dsh_app/state/workspaces_state.dart';
 import 'package:dsh_app/ui/chat/chat_screen.dart';
 import 'package:dsh_app/ui/chat/model_sheet.dart';
 import 'package:dsh_app/ui/shell/home_shell.dart';
@@ -244,5 +245,13 @@ void main() {
 
     expect(find.text('Codex 新对话'), findsOneWidget);
     expect(find.text('向 Codex 终端发送输入...'), findsOneWidget);
+  });
+
+  test('sessionMatchesWorkspacePath matches Windows/POSIX paths, subdirectories, and ignores unrelated paths', () {
+    expect(sessionMatchesWorkspacePath(r'D:\dev\workspace', 'd:/dev/workspace/'), isTrue);
+    expect(sessionMatchesWorkspacePath('D:/dev/workspace/sub/pkg', r'd:\dev\workspace'), isTrue);
+    expect(sessionMatchesWorkspacePath('D:/dev/workspace2', 'D:/dev/workspace'), isFalse);
+    expect(sessionMatchesWorkspacePath('/home/user/repo', '/home/user/repo'), isTrue);
+    expect(sessionMatchesWorkspacePath(null, 'D:/dev/workspace'), isFalse);
   });
 }

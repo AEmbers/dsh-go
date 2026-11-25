@@ -9,8 +9,9 @@ import test from 'node:test';
 
 import { attachRemoteRpcBridge, createNodePrefixHandler, createWorkbenchRoutes } from '../lib/index.js';
 import { parseAntigravityModelsOutput } from '../lib/models.js';
-import { CliRunManager, IDE_READONLY_MESSAGE, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
+import { CliRunManager, buildCliCommand, parseCliStreamLine } from '../lib/runner.js';
 import { readAntigravityMessages, scanAntigravitySessions } from '../lib/scanners/antigravity.js';
+import { unwrapUserRequest } from '../lib/scanners/common.js';
 import { readCliSessionMessages, scanAllCliSessions } from '../lib/scanners/index.js';
 
 function makeTempFixtures() {
@@ -726,7 +727,7 @@ test('files/stat, read-bytes, read-text, list, wb-upload, and Antigravity USER_I
   assert.equal((await dirStatRes.json()).code, 'workspace-file/not-regular-file');
 });
 
-test('Antigravity scanner merges IDE and CLI roots and CliRunManager blocks IDE-only session prompts cleanly', (t) => {
+test('Antigravity scanner merges IDE and CLI roots and auto-hands off IDE-only session prompts', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-agy-dual-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -771,13 +772,13 @@ test('Antigravity scanner merges IDE and CLI roots and CliRunManager blocks IDE-
   const cliMsgs = readAntigravityMessages(cliId, { rootDir: ideRoot, cliRootDir: cliRoot });
   assert.equal(cliMsgs.messages[0].parts[0].text, 'CLI prompt');
 
-  let spawned = 0;
+  const calls = [];
   const manager = new CliRunManager({
     antigravityIdeRoot: ideRoot,
     antigravityCliRoot: cliRoot,
     resolveBinFn: () => 'fake-agy',
-    spawnFn: () => {
-      spawned += 1;
+    spawnFn: (_exe, args) => {
+      calls.push(args);
       const child = new EventEmitter();
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
@@ -786,14 +787,28 @@ test('Antigravity scanner merges IDE and CLI roots and CliRunManager blocks IDE-
     },
   });
 
-  assert.throws(
-    () => manager.startRun({ engine: 'antigravity', rawSessionId: ideId, prompt: 'hello' }),
-    (err) => err.code === 'ide_session_readonly' && err.message === IDE_READONLY_MESSAGE,
-  );
-  assert.equal(spawned, 0);
+  // IDE 独占会话发送消息：自动开启 pending-* 接续会话并注入历史上下文，不再报错
+  const handoffRun = manager.startRun({ engine: 'antigravity', rawSessionId: ideId, prompt: 'continue please' });
+  assert.equal(handoffRun.running, true);
+  assert.ok(handoffRun.rawId.startsWith('pending-'));
+  assert.equal(handoffRun.handedOffFrom, ideId);
+  assert.ok(!calls[0].includes('--conversation'));
+  const handoffPrintArg = calls[0].at(-1);
+  assert.ok(handoffPrintArg.includes('<HANDOFF_CONTEXT>'));
+  assert.ok(handoffPrintArg.includes('IDE only prompt'));
+  assert.ok(handoffPrintArg.includes('continue please'));
 
+  // transcript 展示清洗：剥离 <HANDOFF_CONTEXT>，仅保留用户原始问题
+  assert.equal(
+    unwrapUserRequest(`<USER_REQUEST>\n<HANDOFF_CONTEXT>\nhistory\n</HANDOFF_CONTEXT>\n\ncontinue please\n</USER_REQUEST>`),
+    'continue please',
+  );
+
+  // CLI 会话发送消息：正常带 --conversation 续聊
   const okRun = manager.startRun({ engine: 'antigravity', rawSessionId: cliId, prompt: 'hello' });
   assert.equal(okRun.running, true);
-  assert.equal(spawned, 1);
+  assert.equal(okRun.rawId, cliId);
+  assert.ok(calls[1].includes('--conversation'));
+  assert.ok(calls[1].includes(cliId));
   manager.dispose();
 });

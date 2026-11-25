@@ -116,7 +116,8 @@ function scanSingleAntigravityRoot(rootDir, limit) {
       const items = [];
       for (const row of rows) {
         if (!isSafeSessionId(row.conversation_id)) continue;
-        const summaryTitle = String(row.title || row.preview || '').trim();
+        const rawSummary = String(row.title || row.preview || '').trim();
+        const summaryTitle = rawSummary.startsWith('<HANDOFF_CONTEXT>') ? '' : rawSummary;
         const transcriptTitle = summaryTitle ? null : readTitleFromTranscriptHead(rootDir, String(row.conversation_id));
         const title = summaryTitle || transcriptTitle;
         // 无摘要且无用户显式提问（通常为后台子智能体会话）时跳过，避免侧栏充斥 UUID
