@@ -5,6 +5,8 @@ All notable changes to the `dsh-workbench-bridge` plugin in `AEmbers/dsh-go` are
 ## Unreleased
 
 ### Added
+- **Agent Teams remote tunnel forwarding (`#8`)**:
+  - Added [`createAgentTeamsProxy`](lib/agent_teams_proxy.js) and registered `workbench.bridge.agentTeams.{state,halt,plan}` on the `ds-harness-remote` E2EE RPC bridge so `@nanmicoder/dsh-agent-teams` panels work over remote relay connections via authenticated loopback requests to the host `webServer`.
 - **Antigravity Desktop CDP silent remote control (`#6`)**:
   - Added [`AntigravityDesktopCdpClient`](lib/desktop_cdp.js) connecting strictly to loopback CDP (`http://127.0.0.1:19222` by default) to operate Antigravity Desktop DOM quietly in the background without foreground stealing, clipboard pollution, or full-page reloads.
   - Existing desktop IDE sessions (`~/.gemini/antigravity`) now continue in-place with native image uploads (`DOM.setFileInputFiles`), model & reasoning effort switching, live stream delta observation, and remote abort (`[data-testid="input-cancel-button"]`).

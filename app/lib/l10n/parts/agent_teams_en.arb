@@ -134,5 +134,6 @@
   "ateamLoop": "Quality loop",
   "ateamCatalogTitle": "Agent Teams",
   "ateamCatalogSummary": "Approve a staged plan, watch the members, the task lanes and the captain inbox, and halt the team at any time.",
-  "ateamCardOpenPanel": "Open team panel"
+  "ateamCardOpenPanel": "Open team panel",
+  "ateamTunnelUnsupported": "This remote connection cannot reach the team panel yet. Update and restart dsh-workbench-bridge on the host, or connect over LAN."
 }

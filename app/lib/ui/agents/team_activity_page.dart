@@ -113,7 +113,7 @@ class _TeamActivityPageState extends ConsumerState<TeamActivityPage> {
           EmptyView(
             icon: AppIcons.error,
             title: l10n.ateamReadFailed,
-            message: '$read.error',
+            message: _readErrorMessage(l10n, read.error),
             actionLabel: l10n.commonRetry,
             onAction: () => ref.read(agentTeamsProvider.notifier).refresh(),
             padding: const EdgeInsets.fromLTRB(32, 40, 32, 24),
@@ -861,6 +861,14 @@ StatusTone ateamPhaseTone(TeamPhase phase, {bool halted = false}) => switch (pha
 
 /// The harness's own name for the tool whose result folds into a team card.
 const agentTeamsCreateToolName = 'agent_teams_create';
+
+String _readErrorMessage(L10n l10n, Object? error) {
+  if (error is DshRemoteException && error.code == 'agent-teams/unsupported') {
+    return l10n.ateamTunnelUnsupported;
+  }
+  if (error is DshException) return error.message;
+  return error?.toString() ?? l10n.ateamReadFailed;
+}
 
 String _errorText(L10n l10n, AgentTeamsActionState action) {
   final base = switch (action.error) {

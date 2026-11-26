@@ -112,6 +112,16 @@ class AgentTeamsController extends Notifier<AsyncValue<AgentTeamsState?>> {
       _etag = null;
       _poll?.cancel();
       state = const AsyncData(null);
+    } on DshRemoteException catch (error, stack) {
+      if (stale()) return;
+      if (error.code == 'agent-teams/unsupported') {
+        // 通道本身不支持时不再每 10 秒无效轮询，等待重连或用户手动重试
+        _poll?.cancel();
+        if (!state.hasValue) state = AsyncError(error, stack);
+        return;
+      }
+      if (!state.hasValue) state = AsyncError(error, stack);
+      _schedule(client, generation);
     } catch (error, stack) {
       if (stale()) return;
       if (!state.hasValue) state = AsyncError(error, stack);

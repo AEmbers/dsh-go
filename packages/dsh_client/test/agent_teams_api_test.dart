@@ -500,6 +500,146 @@ void main() {
       expect(AgentTeamPlanAction.updateMember.wire, 'update_member');
     });
   });
+
+  group('remote bridge RPC fallback', () {
+    test('reads state with ETag/304, executes halt/plan, and translates errors over non-HTTP carrier', () async {
+      final calls = <(String, Map<String, Object?>)>[];
+      var handler = (String method, Map<String, Object?> params) async => switch (method) {
+        'workbench.bridge.agentTeams.state' when params['ifNoneMatch'] == '"etag-1"' => {
+          'status': 304,
+          'etag': '"etag-1"',
+        },
+        'workbench.bridge.agentTeams.state' => {
+          'status': 200,
+          'etag': '"etag-1"',
+          'body': stateJson(),
+        },
+        'workbench.bridge.agentTeams.halt' when params['teamId'] == 'detached' => {
+          'status': 409,
+          'body': {'error': 'captain session is not attached'},
+          'rawText': '{"error":"captain session is not attached"}',
+        },
+        'workbench.bridge.agentTeams.halt' when params['teamId'] == 'missing' => {
+          'status': 404,
+          'body': {'error': 'team not found'},
+          'rawText': '{"error":"team not found"}',
+        },
+        'workbench.bridge.agentTeams.halt' => {
+          'status': 200,
+          'body': {'ok': true},
+        },
+        'workbench.bridge.agentTeams.plan' when params['action'] == 'remove_task' => {
+          'status': 409,
+          'body': {'error': 'taskId does not exist: task-9'},
+          'rawText': '{"error":"taskId does not exist: task-9"}',
+        },
+        'workbench.bridge.agentTeams.plan' => {
+          'status': 200,
+          'body': {'ok': true, 'phase': 'running', 'members': 2, 'tasks': 4},
+        },
+        _ => null,
+      };
+
+      final carrier = _FakeRpcCarrier((method, params) {
+        calls.add((method, params));
+        return handler(method, params);
+      });
+      final client = await DshClient.connectCarrier(carrier, startMux: false);
+      addTearDown(client.close);
+
+      final state = await client.readAgentTeams(captainSessionId: 'session-captain', summary: true);
+      expect(state, isNotNull);
+      expect(state!.etag, '"etag-1"');
+      expect(state.teams.single.name, '登录修复');
+      expect(calls.last.$1, 'workbench.bridge.agentTeams.state');
+      expect(calls.last.$2, {'session': 'session-captain', 'summary': true});
+
+      final unchanged = await client.readAgentTeams(ifNoneMatch: '"etag-1"');
+      expect(unchanged, isNull);
+
+      final halted = await client.haltAgentTeam(sessionId: 'session-captain', teamId: 'team-1');
+      expect(halted.ok, isTrue);
+
+      await expectLater(
+        client.haltAgentTeam(sessionId: 'session-captain', teamId: 'detached'),
+        throwsA(isA<AgentTeamsCaptainDetachedException>()),
+      );
+      await expectLater(
+        client.haltAgentTeam(sessionId: 'session-captain', teamId: 'missing'),
+        throwsA(isA<AgentTeamsTeamNotFoundException>()),
+      );
+
+      final planned = await client.planAgentTeam(
+        sessionId: 's',
+        teamId: 't',
+        action: AgentTeamPlanAction.updateTask,
+        fields: {'taskId': 'task-1', 'subject': 'x', 'description': null},
+      );
+      expect(planned.ok, isTrue);
+      expect(planned.phase, TeamPhase.running);
+      expect(planned.members, 2);
+      expect(planned.tasks, 4);
+      expect(calls.last.$2, {'sessionId': 's', 'teamId': 't', 'action': 'update_task', 'taskId': 'task-1', 'subject': 'x'});
+
+      await expectLater(
+        client.planAgentTeam(
+          sessionId: 's',
+          teamId: 't',
+          action: AgentTeamPlanAction.removeTask,
+          fields: {'taskId': 'task-9'},
+        ),
+        throwsA(
+          isA<AgentTeamsPlanRejectedException>().having((e) => e.message, 'message', 'taskId does not exist: task-9'),
+        ),
+      );
+
+      // 404 / 503 on state route maps to AgentTeamsUnavailableException
+      handler = (_, _) async => {'status': 404, 'rawText': ''};
+      await expectLater(client.readAgentTeams(), throwsA(isA<AgentTeamsUnavailableException>()));
+      handler = (_, _) async => {'status': 503, 'rawText': '{"error":"host webServer unavailable"}'};
+      await expectLater(client.readAgentTeams(), throwsA(isA<AgentTeamsUnavailableException>()));
+
+      // null RPC return or METHOD_NOT_FOUND maps cleanly to agent-teams/unsupported
+      handler = (_, _) async => null;
+      await expectLater(
+        client.readAgentTeams(),
+        throwsA(isA<DshRemoteException>().having((e) => e.code, 'code', 'agent-teams/unsupported')),
+      );
+      handler = (_, _) async => throw const DshRemoteException('METHOD_NOT_FOUND', 'unknown');
+      await expectLater(
+        client.readAgentTeams(),
+        throwsA(isA<DshRemoteException>().having((e) => e.code, 'code', 'agent-teams/unsupported')),
+      );
+    });
+  });
+}
+
+class _FakeRpcCarrier extends DshCarrier {
+  _FakeRpcCarrier(this._onBridgeRpc);
+
+  final Future<Map<String, Object?>?> Function(String method, Map<String, Object?> params) _onBridgeRpc;
+
+  @override
+  String get kind => 'fake-remote-rpc';
+
+  @override
+  DshTracer? get tracer => null;
+
+  @override
+  Future<RpcResult> call(String endpoint, Map<String, Object?> args, {Duration? timeout}) => throw UnimplementedError();
+
+  @override
+  Future<DshMuxLink> openLink(MuxOptions options) => throw UnimplementedError();
+
+  @override
+  Future<Map<String, Object?>?> invokeWorkbenchBridgeRpc(
+    String method, [
+    Map<String, Object?> params = const {},
+    Duration? timeout,
+  ]) => _onBridgeRpc(method, params);
+
+  @override
+  Future<void> close() async {}
 }
 
 // -----------------------------------------------------------------------------

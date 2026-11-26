@@ -1289,3 +1289,210 @@ test('CliRunManager routes IDE sessions in-place & new chats to desktop CDP, and
   assert.equal(fbSnap.resolvedSessionId, 'cli:antigravity:acp-fallback-1');
   assert.ok(fbSnap.messages.some((m) => m.parts.some((p) => p.text === 'ACP fallback reply')));
 });
+
+test('proxies workbench.bridge.agentTeams.* RPCs over authenticated loopback HTTP with ETag and 401 cookie refresh', async (t) => {
+  const validCookies = new Set(['dsh-auth-test=cookie-v1']);
+  let nextCookieSeq = 1;
+  let etagVersion = 1;
+  let serverAddr = '';
+  const requests = [];
+
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const rawBody = Buffer.concat(chunks).toString('utf8');
+      requests.push({
+        method: req.method,
+        pathname: url.pathname,
+        query: Object.fromEntries(url.searchParams.entries()),
+        cookie: req.headers.cookie || null,
+        ifNoneMatch: req.headers['if-none-match'] || null,
+        body: rawBody ? JSON.parse(rawBody) : null,
+      });
+
+      // 模拟桌面端无根目录 fallback、由 /connect 完成 launch token -> HttpOnly Cookie 换票
+      if (url.pathname === '/') {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      if (url.pathname === '/connect') {
+        if (url.searchParams.get('token') !== 'secret-tok') {
+          res.writeHead(401, { 'content-type': 'text/plain' });
+          res.end('unauthorized');
+          return;
+        }
+        const cookieVal = `dsh-auth-test=cookie-v${nextCookieSeq++}`;
+        validCookies.add(cookieVal);
+        res.writeHead(302, {
+          location: './api/remote.mux',
+          'set-cookie': `${cookieVal}; Path=/; HttpOnly; SameSite=Strict`,
+        });
+        res.end();
+        return;
+      }
+
+      if (!req.headers.cookie || !validCookies.has(req.headers.cookie)) {
+        res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+
+      if (url.pathname === '/plugins/dsh-agent-teams/state' && req.method === 'GET') {
+        const currentEtag = `W/"etag-v${etagVersion}"`;
+        if (req.headers['if-none-match'] === currentEtag) {
+          res.writeHead(304, { etag: currentEtag });
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', etag: currentEtag });
+        res.end(
+          JSON.stringify({
+            teams: [
+              {
+                teamId: 'team-1',
+                name: '远端团队',
+                captainSessionId: 'session-cap',
+                phase: 'running',
+                members: [{ id: 'session-cap', name: 'captain', role: 'captain', status: 'active' }],
+                tasks: [],
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      if (url.pathname === '/plugins/dsh-agent-teams/halt' && req.method === 'POST') {
+        const parsed = rawBody ? JSON.parse(rawBody) : {};
+        if (parsed.teamId === 'missing') {
+          res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'captain session is not attached' }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
+      if (url.pathname === '/plugins/dsh-agent-teams/plan' && req.method === 'POST') {
+        const parsed = rawBody ? JSON.parse(rawBody) : {};
+        if (parsed.action === 'discard' && parsed.teamId === 'reject-me') {
+          res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'plan already running' }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, phase: 'running', members: 1, tasks: 0 }));
+        return;
+      }
+
+      res.writeHead(404);
+      res.end();
+    });
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const addr = server.address();
+  serverAddr = `http://127.0.0.1:${addr.port}`;
+
+  const mockCtx = {
+    get(key) {
+      if (key === 'webServer') return { getOrigin: () => serverAddr };
+      if (key === 'connection') {
+        return {
+          authenticatedUrl(baseUrl) {
+            const u = new URL(baseUrl);
+            u.searchParams.set('token', 'secret-tok');
+            return u.href;
+          },
+        };
+      }
+      return undefined;
+    },
+  };
+
+  class FakeRpcRouter {
+    async invoke() {
+      throw new Error('should not fall through for workbench.bridge.*');
+    }
+  }
+  const routes = createWorkbenchRoutes(mockCtx, { requireConnection: false });
+  t.after(() => routes.runner.dispose());
+  const detach = attachRemoteRpcBridge(FakeRpcRouter, routes);
+  t.after(detach);
+
+  const router = new FakeRpcRouter();
+
+  // 1) 首次读取：自动走 /connect 换票，携带查询参数与 ETag 返回
+  const stateRes1 = await router.invoke('workbench.bridge.agentTeams.state', {
+    session: 'session-cap',
+    summary: true,
+  });
+  assert.equal(stateRes1.status, 200);
+  assert.equal(stateRes1.etag, 'W/"etag-v1"');
+  assert.equal(stateRes1.body.teams[0].teamId, 'team-1');
+  const firstStateReq = requests.find((r) => r.pathname === '/plugins/dsh-agent-teams/state');
+  assert.equal(firstStateReq.query.session, 'session-cap');
+  assert.equal(firstStateReq.query.summary, '1');
+  assert.equal(firstStateReq.cookie, 'dsh-auth-test=cookie-v1');
+
+  // 2) 带相同 ETag：返回 304 且未重复换票（命中 Cookie 缓存）
+  const connectCountBefore = requests.filter((r) => r.pathname === '/connect').length;
+  const stateRes304 = await router.invoke('workbench.bridge.agentTeams.state', {
+    ifNoneMatch: 'W/"etag-v1"',
+  });
+  assert.equal(stateRes304.status, 304);
+  assert.equal(requests.filter((r) => r.pathname === '/connect').length, connectCountBefore);
+
+  // 3) 模拟旧 Cookie 被撤销导致 401：自动重新换票（cookie-v2）并重试成功
+  validCookies.delete('dsh-auth-test=cookie-v1');
+  etagVersion = 2;
+  const stateResRefreshed = await router.invoke('workbench.bridge.agentTeams.state', {
+    archived: true,
+  });
+  assert.equal(stateResRefreshed.status, 200);
+  assert.equal(stateResRefreshed.etag, 'W/"etag-v2"');
+  assert.equal(requests.filter((r) => r.pathname === '/connect').length, connectCountBefore + 1);
+
+  // 4) halt 成功与 409/400 错误透传
+  const haltOk = await router.invoke('workbench.bridge.agentTeams.halt', {
+    sessionId: 'session-cap',
+    teamId: 'team-1',
+  });
+  assert.equal(haltOk.status, 200);
+  assert.equal(haltOk.body.ok, true);
+
+  const haltConflict = await router.invoke('workbench.bridge.agentTeams.halt', {
+    sessionId: 'session-cap',
+    teamId: 'missing',
+  });
+  assert.equal(haltConflict.status, 409);
+  assert.equal(haltConflict.body.error, 'captain session is not attached');
+
+  const haltBad = await router.invoke('workbench.bridge.agentTeams.halt', {
+    sessionId: '',
+    teamId: 'team-1',
+  });
+  assert.equal(haltBad.status, 400);
+
+  // 5) plan 成功与 409 拒绝消息透传
+  const planOk = await router.invoke('workbench.bridge.agentTeams.plan', {
+    sessionId: 'session-cap',
+    teamId: 'team-1',
+    action: 'approve',
+  });
+  assert.equal(planOk.status, 200);
+  assert.equal(planOk.body.phase, 'running');
+
+  const planRejected = await router.invoke('workbench.bridge.agentTeams.plan', {
+    sessionId: 'session-cap',
+    teamId: 'reject-me',
+    action: 'discard',
+  });
+  assert.equal(planRejected.status, 409);
+  assert.match(planRejected.rawText, /plan already running/);
+});

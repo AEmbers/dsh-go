@@ -823,4 +823,118 @@ void main() {
       expect(agentTeamCaptainSession(named), 'session-x');
     });
   });
+
+  group('remote tunnel bridge RPC', () {
+    test('loads snapshot and executes actions over non-HTTP bridge RPC carrier', () async {
+      final carrier = _FakeTunnelCarrier((method, params) async {
+        return switch (method) {
+          'workbench.bridge.agentTeams.state' => {
+            'status': 200,
+            'etag': '"rpc-1"',
+            'body': _stateJson(teamId: 'team-rpc', name: '隧道团队'),
+          },
+          'workbench.bridge.agentTeams.halt' => {'status': 200, 'body': {'ok': true}},
+          'workbench.bridge.agentTeams.plan' => {
+            'status': 200,
+            'body': {'ok': true, 'phase': 'running', 'members': 2, 'tasks': 4},
+          },
+          _ => null,
+        };
+      });
+      final client = await DshClient.connectCarrier(carrier, startMux: false);
+      addTearDown(client.close);
+
+      final container = ProviderContainer(
+        overrides: [
+          activeConnectionProvider.overrideWithValue(
+            AsyncData<HostConnection?>(HostConnection(client: client, isLocal: false)),
+          ),
+          installedPluginsProvider.overrideWith(() => _Bundles(const [])),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final sub = container.listen(agentTeamsProvider, (_, _) {});
+      addTearDown(sub.close);
+      await pumpUntil(() => container.read(agentTeamsProvider).value?.teams.isNotEmpty ?? false, what: 'rpc state');
+
+      expect(container.read(agentTeamsProvider).value!.teams.single.teamId, 'team-rpc');
+      expect(container.read(agentTeamsProvider).value!.teams.single.name, '隧道团队');
+
+      expect(
+        await container
+            .read(agentTeamsActionProvider.notifier)
+            .halt(sessionId: 'session-captain', teamId: 'team-rpc'),
+        isTrue,
+      );
+      expect(
+        await container
+            .read(agentTeamsActionProvider.notifier)
+            .plan(sessionId: 'session-captain', teamId: 'team-rpc', action: AgentTeamPlanAction.approve),
+        isTrue,
+      );
+    });
+
+    test('sets AsyncError once on agent-teams/unsupported without error churn until manual refresh', () async {
+      var hits = 0;
+      final carrier = _FakeTunnelCarrier((method, params) async {
+        if (method == 'workbench.bridge.agentTeams.state') {
+          hits++;
+          throw const DshRemoteException('METHOD_NOT_FOUND', 'unknown');
+        }
+        return null;
+      });
+      final client = await DshClient.connectCarrier(carrier, startMux: false);
+      addTearDown(client.close);
+
+      final container = ProviderContainer(
+        overrides: [
+          activeConnectionProvider.overrideWithValue(
+            AsyncData<HostConnection?>(HostConnection(client: client, isLocal: false)),
+          ),
+          installedPluginsProvider.overrideWith(() => _Bundles(const [])),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final sub = container.listen(agentTeamsProvider, (_, _) {});
+      addTearDown(sub.close);
+      await pumpUntil(() => container.read(agentTeamsProvider).hasError, what: 'unsupported error');
+
+      expect(hits, 1);
+      final err = container.read(agentTeamsProvider).error;
+      expect(err, isA<DshRemoteException>().having((e) => e.code, 'code', 'agent-teams/unsupported'));
+
+      await container.read(agentTeamsProvider.notifier).refresh();
+      expect(hits, 2);
+    });
+  });
+}
+
+class _FakeTunnelCarrier extends DshCarrier {
+  _FakeTunnelCarrier(this._onBridgeRpc);
+
+  final Future<Map<String, Object?>?> Function(String method, Map<String, Object?> params) _onBridgeRpc;
+
+  @override
+  String get kind => 'fake-remote-rpc';
+
+  @override
+  DshTracer? get tracer => null;
+
+  @override
+  Future<RpcResult> call(String endpoint, Map<String, Object?> args, {Duration? timeout}) => throw UnimplementedError();
+
+  @override
+  Future<DshMuxLink> openLink(MuxOptions options) => throw UnimplementedError();
+
+  @override
+  Future<Map<String, Object?>?> invokeWorkbenchBridgeRpc(
+    String method, [
+    Map<String, Object?> params = const {},
+    Duration? timeout,
+  ]) => _onBridgeRpc(method, params);
+
+  @override
+  Future<void> close() async {}
 }

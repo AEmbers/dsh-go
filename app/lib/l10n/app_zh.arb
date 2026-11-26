@@ -1116,6 +1116,7 @@
   "ateamCatalogTitle": "团队面板",
   "ateamCatalogSummary": "批准待审的计划，看成员、任务依赖与队长信箱，随时暂停团队。",
   "ateamCardOpenPanel": "打开团队面板",
+  "ateamTunnelUnsupported": "当前远程连接暂不支持团队面板接口，请更新并重启宿主机 dsh-workbench-bridge，或改用局域网直连。",
   "androidShellTitle": "Android Shell",
   "androidShellEntryHint": "独立的系统命令通道，默认关闭",
   "androidShellSubtitle": "通过 Shizuku 或自连 ADB 在这台手机上执行 Android 系统命令，不是 Ubuntu 里的 bash。",

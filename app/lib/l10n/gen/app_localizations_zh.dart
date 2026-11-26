@@ -1875,6 +1875,9 @@ class L10nZh extends L10n {
   String get ateamCardOpenPanel => '打开团队面板';
 
   @override
+  String get ateamTunnelUnsupported => '当前远程连接暂不支持团队面板接口，请更新并重启宿主机 dsh-workbench-bridge，或改用局域网直连。';
+
+  @override
   String get androidShellTitle => 'Android Shell';
 
   @override

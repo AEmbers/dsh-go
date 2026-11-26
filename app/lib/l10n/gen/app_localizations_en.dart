@@ -1956,6 +1956,10 @@ class L10nEn extends L10n {
   String get ateamCardOpenPanel => 'Open team panel';
 
   @override
+  String get ateamTunnelUnsupported =>
+      'This remote connection cannot reach the team panel yet. Update and restart dsh-workbench-bridge on the host, or connect over LAN.';
+
+  @override
   String get androidShellTitle => 'Android Shell';
 
   @override

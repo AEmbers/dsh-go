@@ -575,6 +575,7 @@
   "ateamCatalogTitle": "Agent Teams",
   "ateamCatalogSummary": "Approve a staged plan, watch the members, the task lanes and the captain inbox, and halt the team at any time.",
   "ateamCardOpenPanel": "Open team panel",
+  "ateamTunnelUnsupported": "This remote connection cannot reach the team panel yet. Update and restart dsh-workbench-bridge on the host, or connect over LAN.",
   "androidShellTitle": "Android Shell",
   "androidShellEntryHint": "Separate system-command channel, off by default",
   "androidShellSubtitle": "Run Android system commands on this phone through Shizuku or self-ADB, not bash inside Ubuntu.",

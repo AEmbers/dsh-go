@@ -134,5 +134,6 @@
   "ateamLoop": "质量回路",
   "ateamCatalogTitle": "团队面板",
   "ateamCatalogSummary": "批准待审的计划，看成员、任务依赖与队长信箱，随时暂停团队。",
-  "ateamCardOpenPanel": "打开团队面板"
+  "ateamCardOpenPanel": "打开团队面板",
+  "ateamTunnelUnsupported": "当前远程连接暂不支持团队面板接口，请更新并重启宿主机 dsh-workbench-bridge，或改用局域网直连。"
 }

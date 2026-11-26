@@ -9,6 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { AntigravityAcpClient } from './acp.js';
+import { createAgentTeamsProxy } from './agent_teams_proxy.js';
 import { AntigravityDesktopCdpClient } from './desktop_cdp.js';
 import {
   listBridgeDirectory,
@@ -175,6 +176,7 @@ function boundMessagesBySize(messages, maxBytes = MAX_MESSAGES_BYTES) {
 export function createWorkbenchRoutes(ctx, options = {}) {
   const guard = makeBridgeGuard(ctx, { requireConnection: options.requireConnection ?? true });
   const runner = options.runner || new CliRunManager();
+  const agentTeamsProxy = createAgentTeamsProxy(ctx, options);
 
   const rejectIfNeeded = (req) => {
     const err = guard(req);
@@ -821,6 +823,18 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     }
   }
 
+  function readAgentTeamsPayload(params) {
+    return agentTeamsProxy.readState(params);
+  }
+
+  function haltAgentTeamPayload(params) {
+    return agentTeamsProxy.haltTeam(params);
+  }
+
+  function planAgentTeamPayload(params) {
+    return agentTeamsProxy.planTeam(params);
+  }
+
   return {
     runner,
     buildHealthPayload,
@@ -835,6 +849,9 @@ export function createWorkbenchRoutes(ctx, options = {}) {
     buildFileReadBytesPayload,
     buildFileReadTextPayload,
     buildFileListPayload,
+    readAgentTeamsPayload,
+    haltAgentTeamPayload,
+    planAgentTeamPayload,
     handleHealth,
     handleSessions,
     handleMessages,
@@ -1003,6 +1020,12 @@ export function attachRemoteRpcBridge(RpcRouterClass, routes, RpcErrorClass) {
             return routes.buildFileReadTextPayload(p);
           case 'workbench.bridge.file.list':
             return routes.buildFileListPayload(p);
+          case 'workbench.bridge.agentTeams.state':
+            return await routes.readAgentTeamsPayload(p);
+          case 'workbench.bridge.agentTeams.halt':
+            return await routes.haltAgentTeamPayload(p);
+          case 'workbench.bridge.agentTeams.plan':
+            return await routes.planAgentTeamPayload(p);
           default:
             break;
         }

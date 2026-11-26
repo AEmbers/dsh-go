@@ -3542,6 +3542,12 @@ abstract class L10n {
   /// **'打开团队面板'**
   String get ateamCardOpenPanel;
 
+  /// No description provided for @ateamTunnelUnsupported.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前远程连接暂不支持团队面板接口，请更新并重启宿主机 dsh-workbench-bridge，或改用局域网直连。'**
+  String get ateamTunnelUnsupported;
+
   /// No description provided for @androidShellTitle.
   ///
   /// In zh, this message translates to:

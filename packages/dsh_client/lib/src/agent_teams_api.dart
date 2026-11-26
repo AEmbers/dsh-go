@@ -570,6 +570,31 @@ extension AgentTeamsApi on DshClient {
     String? ifNoneMatch,
     Duration timeout = const Duration(seconds: 20),
   }) async {
+    if (carrier is! DshHttpCarrier) {
+      final result = await _invokeAgentTeamsRpc(
+        'workbench.bridge.agentTeams.state',
+        {
+          if (captainSessionId != null && captainSessionId.isNotEmpty) 'session': captainSessionId,
+          if (archived) 'archived': true,
+          if (summary) 'summary': true,
+          if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) 'ifNoneMatch': ifNoneMatch,
+        },
+        path: agentTeamsStatePath,
+        timeout: timeout,
+      );
+      final status = asInt(result['status']) ?? 200;
+      if (status == 304) return null;
+      if (status == 404 || status == 405 || status == 501 || status == 503) {
+        throw const AgentTeamsUnavailableException();
+      }
+      final bodyMap = asMap(result['body']);
+      if (status != 200) {
+        throw _agentTeamsHttpError(agentTeamsStatePath, status, _rpcRawText(result, bodyMap));
+      }
+      final state = AgentTeamsState.fromJson(bodyMap, etag: asString(result['etag']), archived: archived);
+      if (state == null) throw const DshProtocolException('agent-teams state: not a team list');
+      return state;
+    }
     final connection = _agentTeamsConnection(agentTeamsStatePath);
     final query = <String, String>{
       if (captainSessionId != null && captainSessionId.isNotEmpty) 'session': captainSessionId,
@@ -607,6 +632,20 @@ extension AgentTeamsApi on DshClient {
   }) async {
     _requireId(sessionId, 'sessionId');
     _requireId(teamId, 'teamId');
+    if (carrier is! DshHttpCarrier) {
+      final result = await _invokeAgentTeamsRpc(
+        'workbench.bridge.agentTeams.halt',
+        {'sessionId': sessionId, 'teamId': teamId},
+        path: agentTeamsHaltPath,
+        timeout: timeout,
+      );
+      final status = asInt(result['status']) ?? 200;
+      final bodyMap = asMap(result['body']);
+      if (status != 200) {
+        throw _agentTeamsHttpError(agentTeamsHaltPath, status, _rpcRawText(result, bodyMap));
+      }
+      return AgentTeamHaltResult(ok: bodyMap?['ok'] != false, raw: bodyMap ?? const {});
+    }
     final response = await _agentTeamsConnection(agentTeamsHaltPath).postBytes(
       agentTeamsHaltPath,
       utf8.encode(jsonEncode({'sessionId': sessionId, 'teamId': teamId})),
@@ -645,6 +684,26 @@ extension AgentTeamsApi on DshClient {
       for (final entry in fields.entries)
         if (entry.value != null) entry.key: entry.value,
     };
+    if (carrier is! DshHttpCarrier) {
+      final result = await _invokeAgentTeamsRpc(
+        'workbench.bridge.agentTeams.plan',
+        body,
+        path: agentTeamsPlanPath,
+        timeout: timeout,
+      );
+      final status = asInt(result['status']) ?? 200;
+      final decoded = asMap(result['body']);
+      if (status != 200) {
+        throw _agentTeamsHttpError(agentTeamsPlanPath, status, _rpcRawText(result, decoded), plan: true);
+      }
+      return AgentTeamPlanResult(
+        ok: decoded?['ok'] != false,
+        phase: decoded?['phase'] == null ? null : TeamPhase.parse(decoded!['phase']),
+        members: asInt(decoded?['members']),
+        tasks: asInt(decoded?['tasks']),
+        raw: decoded ?? const {},
+      );
+    }
     final response = await _agentTeamsConnection(agentTeamsPlanPath).postBytes(
       agentTeamsPlanPath,
       utf8.encode(jsonEncode(body)),
@@ -666,6 +725,35 @@ extension AgentTeamsApi on DshClient {
     );
   }
 
+  /// 非 HTTP 连接（如远程加密隧道）通过 `workbench.bridge.agentTeams.*` E2EE RPC 转发请求。
+  Future<Map<String, Object?>> _invokeAgentTeamsRpc(
+    String method,
+    Map<String, Object?> params, {
+    required String path,
+    Duration? timeout,
+  }) async {
+    try {
+      final result = await carrier.invokeWorkbenchBridgeRpc(method, params, timeout);
+      if (result == null) {
+        throw DshRemoteException(
+          'agent-teams/unsupported',
+          'this connection cannot reach the agent-teams route',
+          {'path': path},
+        );
+      }
+      return result;
+    } on DshRemoteException catch (error) {
+      if (error.code == 'METHOD_NOT_FOUND' || error.code == 'FEATURE_NOT_SUPPORTED') {
+        throw DshRemoteException(
+          'agent-teams/unsupported',
+          'this connection cannot reach the agent-teams route',
+          {'path': path, 'reason': error.code},
+        );
+      }
+      rethrow;
+    }
+  }
+
   DshConnection _agentTeamsConnection(String path) {
     final carrier = this.carrier;
     if (carrier is! DshHttpCarrier) {
@@ -677,6 +765,12 @@ extension AgentTeamsApi on DshClient {
     }
     return carrier.connection;
   }
+}
+
+String _rpcRawText(Map<String, Object?> result, Map<String, Object?>? bodyMap) {
+  final rawText = asString(result['rawText']);
+  if (rawText != null && rawText.isNotEmpty) return rawText;
+  return bodyMap == null ? '' : jsonEncode(bodyMap);
 }
 
 void _requireId(String value, String name) {
